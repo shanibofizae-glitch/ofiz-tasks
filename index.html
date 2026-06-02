@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OFIZ Tasks</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     LOGIN
+     ═══════════════════════════════════════════════════════ -->
+<div id="login-screen" class="login-page">
+  <div class="login-card">
+    <div class="login-wordmark">
+      <div class="login-brand">OFIZ Tasks</div>
+      <div class="login-sub">Task management for OFIZ Accounting</div>
+    </div>
+
+    <!-- Step 1: Pick user -->
+    <div id="login-step-1">
+      <div class="login-divider">Sign in as</div>
+      <div class="demo-users" id="user-select-list"></div>
+    </div>
+
+    <!-- Step 2: Enter password -->
+    <div id="login-step-2" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+        <button onclick="backToUserSelect()"
+          style="background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:13px;display:flex;align-items:center;gap:4px;padding:0">
+          <i class="ti ti-arrow-left" style="font-size:14px"></i> Back
+        </button>
+      </div>
+      <div id="selected-user-display"
+        style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+          background:var(--bg);border:1px solid var(--border-md);
+          border-radius:var(--radius);margin-bottom:18px">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div style="position:relative">
+          <input type="password" id="login-password" class="form-input"
+            placeholder="Enter your password"
+            onkeydown="if(event.key==='Enter')submitPassword()"
+            style="padding-right:42px">
+          <button onclick="togglePasswordVisibility()"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+              background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:16px"
+            id="pw-toggle-btn">
+            <i class="ti ti-eye" id="pw-toggle-icon"></i>
+          </button>
+        </div>
+        <div id="login-error"
+          style="display:none;color:var(--red);font-size:12px;margin-top:6px">
+          <i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i>
+          Incorrect password. Please try again.
+        </div>
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center"
+        onclick="submitPassword()">
+        <i class="ti ti-login"></i> Sign in
+      </button>
+    </div>
+
+    <div class="login-footer">
+      OFIZ Accounting &mdash; Internal use only
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     APP SHELL
+     ═══════════════════════════════════════════════════════ -->
+<div id="app-screen" class="app-shell" style="display:none">
+
+  <div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">OF</div>
+      <div class="logo-text">
+        <div class="logo-name">OFIZ Tasks</div>
+        <div class="logo-sub">Accounting</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group-label">Workspace</div>
+      <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard',this)">
+        <i class="ti ti-layout-dashboard"></i> Dashboard
+      </div>
+      <div class="nav-item" data-page="tasks" onclick="showPage('tasks',this)">
+        <i class="ti ti-list-check"></i> All tasks
+        <span class="nav-badge badge-overdue" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-page="clients" onclick="showPage('clients',this)">
+        <i class="ti ti-building-store"></i> Clients
+      </div>
+      <div class="nav-item" data-page="documents" onclick="showPage('documents',this)">
+        <i class="ti ti-file-certificate"></i> Documents
+        <span class="nav-badge badge-overdue" id="badge-documents" style="display:none">!</span>
+      </div>
+      <div class="nav-item" data-page="pipelines" onclick="showPage('pipelines',this)">
+        <i class="ti ti-layout-kanban"></i> Pipelines
+        <span class="nav-badge badge-overdue" id="badge-pipelines" style="display:none">!</span>
+      </div>
+      <div class="nav-item" data-page="templates" data-admin-only onclick="showPage('templates',this)">
+        <i class="ti ti-repeat"></i> Recurring
+      </div>
+      <div class="nav-item" data-page="close" data-admin-only onclick="showPage('close',this)">
+        <i class="ti ti-calendar-check"></i> Monthly close
+      </div>
+      <div class="nav-group-label">Admin</div>
+      <div class="nav-item" data-page="users" data-admin-only onclick="showPage('users',this)">
+        <i class="ti ti-users"></i> Users & roles
+      </div>
+      <div class="nav-item" data-page="settings" data-admin-only onclick="showPage('settings',this)">
+        <i class="ti ti-settings"></i> Settings
+      </div>
+    </nav>
+
+    <div class="sidebar-user">
+      <div class="user-card" onclick="logout()">
+        <div class="avatar av-admin" id="sidebar-user-initials">SH</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebar-user-name">Shanib</div>
+          <div class="user-role" id="sidebar-user-role">Admin</div>
+        </div>
+        <i class="ti ti-logout user-chevron" title="Sign out"></i>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger-btn" id="hamburger-btn" onclick="toggleSidebar()" aria-label="Toggle menu">
+          <i class="ti ti-menu-2"></i>
+        </button>
+        <span class="page-title" id="page-title">Dashboard</span>
+      </div>
+      <div class="topbar-right">
+        <div class="search-box" id="global-search-box" style="display:none">
+          <i class="ti ti-search"></i>
+          <input type="text" placeholder="Search tasks…" oninput="handleSearch(this.value)">
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="toggleChat()" id="chat-toggle-btn" title="Team chat" style="position:relative">
+          <i class="ti ti-message-circle"></i>
+          <span id="chat-badge" style="display:none;position:absolute;top:-4px;right:-4px;
+            background:var(--red);color:#fff;font-size:9px;font-weight:700;
+            border-radius:20px;padding:1px 5px;min-width:16px;text-align:center;
+            font-family:var(--mono)"></span>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleDarkMode()" id="dark-btn" title="Toggle dark mode">
+          <i class="ti ti-moon"></i>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="printTasks()" id="print-btn" title="Export / Print" style="display:none">
+          <i class="ti ti-printer"></i>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="refreshCurrentPage()" title="Refresh">
+          <i class="ti ti-refresh"></i>
+        </button>
+        <button class="btn btn-primary btn-sm" id="btn-new-task" data-admin-only onclick="openNewTaskModal()">
+          <i class="ti ti-plus"></i> New task
+        </button>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- DASHBOARD -->
+      <div id="page-dashboard" class="page active">
+        <div class="stats-grid" style="margin-bottom:20px">
+          <div class="stat-card">
+            <div class="stat-top">
+              <span class="stat-label-top">Total tasks</span>
+              <span class="stat-dot blue"></span>
+            </div>
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-sub">across all clients</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-top">
+              <span class="stat-label-top">Due today</span>
+              <span class="stat-dot amber"></span>
+            </div>
+            <div class="stat-value" id="stat-today">0</div>
+            <div class="stat-sub">need attention</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-top">
+              <span class="stat-label-top">Overdue</span>
+              <span class="stat-dot red"></span>
+            </div>
+            <div class="stat-value" id="stat-overdue">0</div>
+            <div class="stat-sub">past due date</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-top">
+              <span class="stat-label-top">Completed</span>
+              <span class="stat-dot green"></span>
+            </div>
+            <div class="stat-value" id="stat-done">0</div>
+            <div class="stat-sub">this period</div>
+          </div>
+        </div>
+
+        <div class="chart-wrap" id="chart-wrap" style="margin-bottom:24px">
+          <div class="section-head" style="margin-bottom:14px">
+            <span class="section-title">Completions this month</span>
+          </div>
+          <canvas id="completion-chart" style="display:block;width:100%;height:160px"></canvas>
+        </div>
+
+        <div class="section-head" style="margin-bottom:12px">
+          <span class="section-title">Team workload</span>
+        </div>
+        <div id="workload-section" style="margin-bottom:24px"></div>
+
+        <div class="section-head">
+          <span class="section-title">Priority tasks</span>
+          <button class="btn btn-ghost btn-sm" onclick="showPage('tasks',document.querySelector('[data-page=tasks]'))">
+            View all <i class="ti ti-arrow-right"></i>
+          </button>
+        </div>
+        <div class="task-list" id="dash-task-list"></div>
+      </div>
+
+      <!-- ALL TASKS -->
+      <div id="page-tasks" class="page">
+        <div class="filter-bar">
+          <button class="filter-chip on"  onclick="setFilter('status','all',this)">All</button>
+          <button class="filter-chip"     onclick="setFilter('status','pending',this)">Pending</button>
+          <button class="filter-chip"     onclick="setFilter('status','progress',this)">In progress</button>
+          <button class="filter-chip"     onclick="setFilter('status','overdue',this)">Overdue</button>
+          <button class="filter-chip"     onclick="setFilter('status','done',this)">Done</button>
+          <div style="width:1px;background:var(--border);margin:0 4px;height:20px;align-self:center"></div>
+          <button class="filter-chip"     onclick="setFilter('type','daily',this)">Daily</button>
+          <button class="filter-chip"     onclick="setFilter('type','weekly',this)">Weekly</button>
+          <button class="filter-chip"     onclick="setFilter('type','monthly',this)">Monthly</button>
+          <button class="filter-chip"     onclick="setFilter('type','oneoff',this)">One-off</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+            <select id="filter-assignee-select" class="form-select" style="height:32px;font-size:12px;padding:0 28px 0 10px;width:130px;border-radius:20px"></select>
+            <select id="filter-client-select" class="form-select" style="height:32px;font-size:12px;padding:0 28px 0 10px;width:160px;border-radius:20px"></select>
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" placeholder="Search…" oninput="handleSearch(this.value)">
+            </div>
+          </div>
+        </div>
+        <!-- Saved views -->
+        <div id="saved-views-bar" style="display:none;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+          <span style="font-size:10.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.6px;white-space:nowrap">Saved views</span>
+          <div id="saved-views-list" style="display:flex;gap:5px;flex-wrap:wrap;flex:1"></div>
+          <button class="btn btn-ghost btn-sm" onclick="saveCurrentFilter()" title="Save current filter as a view">
+            <i class="ti ti-bookmark-plus"></i> Save view
+          </button>
+        </div>
+
+        <!-- Bulk action bar -->
+        <div id="bulk-action-bar" class="bulk-bar" style="display:none">
+          <span id="bulk-count">0 selected</span>
+          <button class="btn btn-sm" style="background:var(--green);color:#fff;border:none" onclick="bulkClose()">
+            <i class="ti ti-circle-check"></i> Mark done
+          </button>
+          <select id="bulk-reassign-sel" onchange="bulkReassign(this.value)"
+            style="height:30px;font-size:12px;padding:0 24px 0 8px;border-radius:var(--radius-sm);
+              background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);
+              color:var(--bg-sidebar);font-family:var(--font);cursor:pointer">
+            <option value="">Reassign to…</option>
+          </select>
+          <button class="btn btn-sm" style="background:var(--red);color:#fff;border:none" onclick="bulkDelete()">
+            <i class="ti ti-trash"></i> Delete
+          </button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--bg-sidebar);border-color:rgba(255,255,255,0.2)" onclick="clearBulkSelection()">
+            <i class="ti ti-x"></i> Cancel
+          </button>
+        </div>
+
+        <div class="section-head" style="margin-bottom:10px">
+          <span class="section-title" id="task-count-label">— tasks</span>
+          <div style="display:flex;gap:5px">
+            <button class="btn btn-ghost btn-sm" id="sel-mode-btn" onclick="toggleSelectMode()">
+              <i class="ti ti-checkbox"></i> Select
+            </button>
+            <button class="btn btn-ghost btn-sm" id="cal-toggle-btn" onclick="toggleCalendarView()">
+              <i class="ti ti-calendar"></i> Calendar
+            </button>
+            <button class="btn btn-ghost btn-sm" id="group-toggle-btn" onclick="toggleGroupByClient()">
+              <i class="ti ti-layout-rows"></i> Group
+            </button>
+          </div>
+        </div>
+
+        <!-- Calendar view -->
+        <div id="calendar-wrap" style="display:none">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+            <button class="btn btn-ghost btn-sm" onclick="calNav(-1)"><i class="ti ti-chevron-left"></i></button>
+            <span id="cal-month-label" style="font-size:13px;font-weight:500;min-width:130px;text-align:center"></span>
+            <button class="btn btn-ghost btn-sm" onclick="calNav(1)"><i class="ti ti-chevron-right"></i></button>
+            <button class="btn btn-ghost btn-sm" onclick="calNav(0)">Today</button>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+        </div>
+
+        <div class="task-list" id="all-task-list"></div>
+      </div>
+
+      <!-- CLIENTS -->
+      <div id="page-clients" class="page">
+        <div class="section-head" style="margin-bottom:18px">
+          <span class="section-title">Client overview</span>
+          <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewClientModal()">
+            <i class="ti ti-plus"></i> New client
+          </button>
+        </div>
+        <div class="client-grid" id="client-grid"></div>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div id="page-documents" class="page">
+        <div id="doc-expiry-alert" style="display:none;margin-bottom:20px"></div>
+        <div class="section-head" style="margin-bottom:18px">
+          <span class="section-title">Client documents</span>
+          <button class="btn btn-primary btn-sm" data-admin-only onclick="openAddDocumentModal()">
+            <i class="ti ti-plus"></i> Add document
+          </button>
+        </div>
+        <div id="document-list"></div>
+      </div>
+
+      <!-- RECURRING TEMPLATES -->
+      <div id="page-templates" class="page">
+        <div class="section-head" style="margin-bottom:18px">
+          <span class="section-title">Recurring templates</span>
+          <button class="btn btn-primary btn-sm" onclick="openNewTemplateModal()">
+            <i class="ti ti-plus"></i> New template
+          </button>
+        </div>
+
+        <!-- Generate bar -->
+        <div style="background:var(--bg-card);border:1px solid var(--border);
+          border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:22px;
+          display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:180px">
+            <div style="font-size:13px;font-weight:500;color:var(--ink);margin-bottom:3px">
+              Generate tasks from templates
+            </div>
+            <div style="font-size:11.5px;color:var(--ink-3)">
+              Creates one task per active template with the correct due date for the selected month.
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <input type="month" id="tg-month" class="form-input" style="width:160px;height:34px">
+            <button class="btn btn-primary btn-sm" id="tg-btn" onclick="generateFromTemplates()">
+              <i class="ti ti-sparkles"></i> Generate
+            </button>
+          </div>
+        </div>
+
+        <div class="task-list" id="template-list"></div>
+      </div>
+
+      <!-- USERS & ROLES -->
+      <div id="page-users" class="page">
+        <div class="user-profile-grid" id="user-profile-grid"></div>
+        <div class="section-head" style="margin-bottom:14px">
+          <span class="section-title">Permission matrix</span>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden">
+          <table class="perm-table">
+            <thead>
+              <tr>
+                <th>Permission</th>
+                <th><span class="role-pill role-admin"><i class="ti ti-crown" style="font-size:10px"></i> Admin</span></th>
+                <th><span class="role-pill role-asst"><i class="ti ti-pencil" style="font-size:10px"></i> Assistant</span></th>
+                <th><span class="role-pill role-viewer"><i class="ti ti-eye" style="font-size:10px"></i> Viewer</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>View all tasks</td>                  <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>View assigned tasks only</td>        <td>—</td><td><i class="ti ti-minus icon-mid"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>Create new tasks</td>                <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Edit existing tasks</td>             <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Close task + closing comment</td>    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Add comments / notes</td>            <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Delete tasks</td>                    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Manage recurring templates</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Manage users & clients</td>          <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>View client health reports</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PIPELINES -->
+      <div id="page-pipelines" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+          <div class="pipeline-tabs" id="pipeline-tabs" style="margin-bottom:0;flex:1"></div>
+          <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewPipelineModal()">
+            <i class="ti ti-plus"></i> New pipeline
+          </button>
+        </div>
+        <div id="kanban-board-wrap"></div>
+      </div>
+
+      <!-- MONTHLY CLOSE -->
+      <div id="page-close" class="page">
+        <div class="close-card">
+          <div class="form-row" style="margin-bottom:20px">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Month</label>
+              <input type="month" id="cl-month" class="form-input" oninput="updateCloseLabel()">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Default assignee</label>
+              <select id="cl-assignee" class="form-select"></select>
+            </div>
+          </div>
+
+          <div class="close-grid">
+            <div>
+              <div class="section-title" style="margin-bottom:12px">Task types</div>
+              <div class="close-check-list" id="cl-task-list"></div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <span class="section-title">Clients</span>
+                <button class="btn btn-ghost btn-sm" onclick="toggleAllClients()" id="cl-toggle-btn">Deselect all</button>
+              </div>
+              <div class="close-check-list" id="cl-client-list"></div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+            <span style="font-size:12px;color:var(--ink-3)" id="cl-count-label"></span>
+            <button class="btn btn-primary" onclick="generateCloseChecklist()" id="cl-gen-btn">
+              <i class="ti ti-sparkles"></i> <span id="cl-gen-label">Generate checklist</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="cl-result" style="display:none;margin-top:24px">
+          <div class="section-head" style="margin-bottom:14px">
+            <span class="section-title" id="cl-result-title"></span>
+            <button class="btn btn-ghost btn-sm"
+              onclick="showPage('tasks',document.querySelector('[data-page=tasks]'))">
+              View in All tasks <i class="ti ti-arrow-right"></i>
+            </button>
+          </div>
+          <div class="task-list" id="cl-task-results"></div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div id="page-settings" class="page">
+        <div id="settings-demo-banner"></div>
+        <div class="settings-section">
+          <div class="section-head" style="margin-bottom:18px">
+            <span class="section-title">Users</span>
+            <button class="btn btn-primary btn-sm" onclick="openAddUserModal()">
+              <i class="ti ti-plus"></i> Add user
+            </button>
+          </div>
+          <div class="settings-list" id="settings-user-list"></div>
+        </div>
+        <div class="settings-section" style="margin-top:36px">
+          <div class="section-head" style="margin-bottom:18px">
+            <span class="section-title">Clients</span>
+            <button class="btn btn-primary btn-sm" onclick="openNewClientModal()">
+              <i class="ti ti-plus"></i> Add client
+            </button>
+          </div>
+          <div class="settings-list" id="settings-client-list"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- TASK DETAIL MODAL -->
+<div class="modal-overlay" id="task-detail-modal" onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="modal-task-title">Task detail</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeTaskModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="modal-task-body"></div>
+    <div class="modal-footer" id="modal-task-footer"></div>
+  </div>
+</div>
+
+<!-- NEW / EDIT TASK MODAL -->
+<div class="modal-overlay" id="task-form-modal" onclick="if(event.target===this)closeTaskForm()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="task-form-title">New task</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeTaskForm()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <form id="task-form" onsubmit="event.preventDefault();submitTaskForm()">
+        <div class="form-group">
+          <label class="form-label">Task title <span style="color:var(--red)">*</span></label>
+          <input type="text" id="tf-title" class="form-input" placeholder="e.g. Bank reconciliation" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Client <span style="color:var(--red)">*</span></label>
+            <select id="tf-client" class="form-select" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assign to <span style="color:var(--red)">*</span></label>
+            <select id="tf-assignee" class="form-select" required></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Task type</label>
+            <select id="tf-type" class="form-select">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="oneoff">One-off</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select id="tf-priority" class="form-select">
+              <option value="high">High</option>
+              <option value="medium" selected>Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due date <span style="color:var(--red)">*</span></label>
+          <input type="date" id="tf-due" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea id="tf-notes" class="form-textarea" placeholder="Any relevant details or instructions…"></textarea>
+        </div>
+        <div class="divider" style="margin:4px 0 14px"></div>
+        <div class="form-row" id="tf-pipeline-row">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Pipeline <span style="color:var(--ink-4)">(optional)</span></label>
+            <select id="tf-pipeline" class="form-select" onchange="onPipelineSelectChange(this.value)"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:0" id="tf-stage-group">
+            <label class="form-label">Stage</label>
+            <select id="tf-stage" class="form-select"></select>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTaskForm()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitTaskForm()">
+        <i class="ti ti-circle-check"></i> Save task
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<!-- NEW CLIENT MODAL -->
+<div class="modal-overlay" id="client-form-modal" onclick="if(event.target===this)closeClientForm()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">New client</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeClientForm()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Client full name <span style="color:var(--red)">*</span></label>
+        <input type="text" id="cf-name" class="form-input" placeholder="e.g. Al Futtaim Group LLC">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Short code <span style="color:var(--red)">*</span></label>
+          <input type="text" id="cf-short" class="form-input" placeholder="e.g. AFG" maxlength="5" style="font-family:var(--mono);text-transform:uppercase">
+          <div style="font-size:11px;color:var(--ink-3);margin-top:4px">2-5 letters shown on task tags</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Accent colour <span style="color:var(--red)">*</span></label>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="color" id="cf-color" value="#4f8ef7" style="width:44px;height:36px;border:1px solid var(--border-md);border-radius:var(--radius-sm);padding:2px;cursor:pointer;background:var(--bg)">
+            <span style="font-size:12px;color:var(--ink-2)">Used for client tag colour</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeClientForm()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitClientForm()">
+        <i class="ti ti-circle-check"></i> Add client
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW PIPELINE MODAL -->
+<div class="modal-overlay" id="pipeline-form-modal" onclick="if(event.target===this)closePipelineModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="pipeline-form-title">New pipeline</div>
+      <button class="btn btn-ghost btn-sm" onclick="closePipelineModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Pipeline name <span style="color:var(--red)">*</span></label>
+        <input type="text" id="pf-name" class="form-input" placeholder="e.g. VAT Filing Process">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" id="pf-desc" class="form-input" placeholder="Brief description (optional)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stages <span style="color:var(--red)">*</span></label>
+        <div class="stage-list" id="stage-list"></div>
+        <button class="add-stage-btn" onclick="addStageInput()">
+          <i class="ti ti-plus"></i> Add stage
+        </button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePipelineModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitPipelineForm()">
+        <i class="ti ti-circle-check"></i> Save pipeline
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD TASK TO PIPELINE MODAL -->
+<div class="modal-overlay" id="pipe-task-modal" onclick="if(event.target===this)closePipeTaskModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Add task to pipeline</div>
+      <button class="btn btn-ghost btn-sm" onclick="closePipeTaskModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Task title <span style="color:var(--red)">*</span></label>
+        <input type="text" id="pt-title" class="form-input" placeholder="e.g. VAT Q2 — The Den DXB">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Client <span style="color:var(--red)">*</span></label>
+          <select id="pt-client" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assign to <span style="color:var(--red)">*</span></label>
+          <select id="pt-assignee" class="form-select"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Priority</label>
+          <select id="pt-priority" class="form-select">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due date <span style="color:var(--red)">*</span></label>
+          <input type="date" id="pt-due" class="form-input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea id="pt-notes" class="form-textarea" placeholder="Any relevant details…" style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePipeTaskModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitPipeTaskForm()">
+        <i class="ti ti-circle-check"></i> Add task
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW TEMPLATE MODAL -->
+<div class="modal-overlay" id="template-form-modal" onclick="if(event.target===this)closeTemplateModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">New recurring template</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeTemplateModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Task title <span style="color:var(--red)">*</span></label>
+        <input type="text" id="tmf-title" class="form-input" placeholder="e.g. Bank reconciliation">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Client <span style="color:var(--red)">*</span></label>
+          <select id="tmf-client" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assign to <span style="color:var(--red)">*</span></label>
+          <select id="tmf-assignee" class="form-select"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Recurrence <span style="color:var(--red)">*</span></label>
+          <select id="tmf-recurrence" class="form-select" onchange="onTemplateRecurrenceChange(this.value)">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly" selected>Monthly</option>
+          </select>
+        </div>
+        <div class="form-group" id="tmf-day-group">
+          <label class="form-label" id="tmf-day-label">Day of month</label>
+          <input type="number" id="tmf-day-month" class="form-input" min="1" max="31" placeholder="e.g. 25">
+          <select id="tmf-day-week" class="form-select" style="display:none">
+            <option value="Mon">Monday</option>
+            <option value="Tue">Tuesday</option>
+            <option value="Wed">Wednesday</option>
+            <option value="Thu">Thursday</option>
+            <option value="Fri">Friday</option>
+            <option value="Sat">Saturday</option>
+            <option value="Sun">Sunday</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTemplateModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitTemplateForm()">
+        <i class="ti ti-circle-check"></i> Save template
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD / EDIT DOCUMENT MODAL -->
+<div class="modal-overlay" id="document-form-modal" onclick="if(event.target===this)closeDocumentModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="doc-form-title">Add document</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeDocumentModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="df-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Client <span style="color:var(--red)">*</span></label>
+          <select id="df-client" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Document type <span style="color:var(--red)">*</span></label>
+          <select id="df-type" class="form-select">
+            <option value="Trade License">Trade License</option>
+            <option value="Emirates ID">Emirates ID</option>
+            <option value="Visa">Visa</option>
+            <option value="VAT Registration">VAT Registration</option>
+            <option value="TRN Certificate">TRN Certificate</option>
+            <option value="MOA / Articles">MOA / Articles</option>
+            <option value="Tenancy Contract">Tenancy Contract</option>
+            <option value="Insurance">Insurance</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Reference / number</label>
+          <input type="text" id="df-number" class="form-input" placeholder="e.g. CN-12345">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Expiry date <span style="color:var(--red)">*</span></label>
+          <input type="date" id="df-expiry" class="form-input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input type="text" id="df-notes" class="form-input" placeholder="Optional notes">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeDocumentModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitDocumentForm()">
+        <i class="ti ti-circle-check"></i> Save document
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- STAGE COLOUR PICKER -->
+<div id="stage-color-picker" style="display:none;position:fixed;z-index:300;
+  background:var(--bg-card);border:1px solid var(--border-md);border-radius:var(--radius);
+  padding:11px 13px;box-shadow:0 6px 24px rgba(15,14,12,0.18);min-width:180px">
+  <div style="font-size:10px;font-weight:600;color:var(--ink-3);text-transform:uppercase;
+    letter-spacing:0.7px;margin-bottom:8px">Stage colour</div>
+  <div id="stage-color-swatches" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px"></div>
+  <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;font-size:11px"
+    onclick="applyStageColor('')">
+    <i class="ti ti-x" style="font-size:11px"></i> Remove colour
+  </button>
+</div>
+
+<!-- CHAT PANEL -->
+<div id="chat-panel" class="chat-panel">
+  <div class="chat-head">
+    <div>
+      <div class="chat-title">Team Chat</div>
+      <div id="chat-channel-header" style="font-size:11px;color:var(--ink-3);margin-top:1px"># Team</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="closeChat()"><i class="ti ti-x"></i></button>
+  </div>
+  <div class="chat-body">
+    <div class="chat-channels-list" id="chat-channels-list"></div>
+    <div class="chat-messages-area">
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-area">
+        <input type="text" id="chat-input-field" class="chat-input"
+          placeholder="Type a message…"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage()}">
+        <button class="btn btn-primary btn-sm" onclick="sendChatMessage()">
+          <i class="ti ti-send"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="chat-overlay" onclick="closeChat()" style="display:none;position:fixed;inset:0;z-index:199;background:rgba(15,14,12,0.15)"></div>
+
+<!-- ADD / EDIT USER MODAL -->
+<div class="modal-overlay" id="user-form-modal" onclick="if(event.target===this)closeUserModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="user-form-title">Add user</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeUserModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="uf-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Full name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="uf-name" class="form-input" placeholder="e.g. Shanib">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email <span style="color:var(--red)">*</span></label>
+          <input type="email" id="uf-email" class="form-input" placeholder="user@example.com">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Role <span style="color:var(--red)">*</span></label>
+          <select id="uf-role" class="form-select">
+            <option value="admin">Admin</option>
+            <option value="assistant">Assistant</option>
+            <option value="viewer" selected>Viewer</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Initials <span style="color:var(--red)">*</span></label>
+          <input type="text" id="uf-initials" class="form-input" maxlength="3" placeholder="e.g. SH"
+            style="font-family:var(--mono);text-transform:uppercase">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Avatar style</label>
+          <select id="uf-avclass" class="form-select">
+            <option value="av-admin">Admin (dark)</option>
+            <option value="av-asst">Assistant (teal)</option>
+            <option value="av-viewer">Viewer (amber)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password <span style="color:var(--red)" id="uf-pw-star">*</span></label>
+          <input type="password" id="uf-password" class="form-input" placeholder="Set a password">
+          <div style="font-size:11px;color:var(--ink-3);margin-top:4px" id="uf-pw-hint"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Telegram Chat ID <span style="color:var(--ink-4)">(optional)</span></label>
+        <input type="text" id="uf-telegram" class="form-input" placeholder="e.g. 123456789"
+          style="font-family:var(--mono)">
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">
+          Get your chat ID by messaging <strong>@userinfobot</strong> on Telegram
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeUserModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitUserForm()">
+        <i class="ti ti-circle-check"></i> Save user
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- KEYBOARD SHORTCUT MODAL -->
+<div class="modal-overlay" id="shortcut-modal" onclick="if(event.target===this)closeShortcutModal()">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-head">
+      <div class="modal-title">Keyboard shortcuts</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeShortcutModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="padding:18px 22px">
+      <div class="shortcut-list">
+        <div class="shortcut-item"><kbd>Ctrl</kbd><kbd>K</kbd><span>New task</span></div>
+        <div class="shortcut-item"><kbd>Esc</kbd><span>Close modal</span></div>
+        <div class="shortcut-item"><kbd>?</kbd><span>Open this help</span></div>
+        <div class="shortcut-item"><kbd>R</kbd><span>Refresh current page</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
