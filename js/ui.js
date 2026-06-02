@@ -568,3 +568,235 @@ function handleSearch(val) {
   taskFilter.search = val;
   renderAllTasks();
 }
+
+/* ═══════════════════════════════════════════════════════════
+   PIPELINE / KANBAN RENDERERS
+   ═══════════════════════════════════════════════════════════ */
+
+function renderPipelinesPage() {
+  renderPipelineTabs();
+  renderKanbanBoard(State.activePipelineId);
+}
+
+function renderPipelineTabs() {
+  const el = document.getElementById('pipeline-tabs');
+  if (!el) return;
+  el.innerHTML = State.pipelines.map(p => `
+    <div class="pipeline-tab ${p.id === State.activePipelineId ? 'active' : ''}"
+         onclick="switchPipeline('${p.id}')">
+      ${p.name}
+    </div>`).join('');
+}
+
+function switchPipeline(pipelineId) {
+  State.activePipelineId = pipelineId;
+  renderPipelineTabs();
+  renderKanbanBoard(pipelineId);
+}
+
+function renderKanbanBoard(pipelineId) {
+  const wrap = document.getElementById('kanban-board-wrap');
+  if (!wrap) return;
+
+  if (!pipelineId) {
+    wrap.innerHTML = `
+      <div class="pipeline-empty">
+        <i class="ti ti-layout-kanban"></i>
+        <p>No pipelines yet. Create one to get started.</p>
+        <button class="btn btn-primary" onclick="openNewPipelineModal()">
+          <i class="ti ti-plus"></i> New pipeline
+        </button>
+      </div>`;
+    return;
+  }
+
+  const stages = State.getStages(pipelineId);
+  const pipeTasks = State.getPipeTasks(pipelineId);
+  const today = new Date().toISOString().slice(0,10);
+  const canEdit = State.user?.role !== 'viewer';
+
+  if (!stages.length) {
+    wrap.innerHTML = `<div class="pipeline-empty"><i class="ti ti-columns"></i><p>No stages defined for this pipeline.</p></div>`;
+    return;
+  }
+
+  wrap.innerHTML = `<div class="kanban-board">${stages.map((stage, idx) => {
+    const cards = pipeTasks.filter(t => t.pipelineStageId === stage.id);
+    const isLast = idx === stages.length - 1;
+
+    return `
+    <div class="kanban-col">
+      <div class="kanban-col-head">
+        <span class="kanban-col-title">${stage.name}</span>
+        <span class="kanban-col-count">${cards.length}</span>
+      </div>
+      <div class="kanban-col-body">
+        ${cards.length ? cards.map(task => renderKanbanCard(task, stage, stages, today, canEdit)).join('') : `
+          <div style="text-align:center;padding:20px 10px;font-size:12px;color:var(--ink-4)">No tasks</div>`}
+      </div>
+      ${canEdit ? `<button class="kanban-add-card" onclick="openPipeTaskModal('${pipelineId}','${stage.id}')">
+        <i class="ti ti-plus"></i> Add task
+      </button>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderKanbanCard(task, currentStage, allStages, today, canEdit) {
+  const over   = task.status !== 'done' && task.dueDate < today;
+  const done   = task.status === 'done';
+  const client = State.getClient(task.clientId);
+  const user   = State.getUser(task.assigneeId);
+  const stageIdx = allStages.findIndex(s => s.id === currentStage.id);
+  const prevStage = allStages[stageIdx - 1];
+  const nextStage = allStages[stageIdx + 1];
+
+  return `
+  <div class="kanban-card ${over ? 'overdue' : ''} ${done ? 'done' : ''}"
+       onclick="openTaskModal('${task.id}')">
+    <div class="kanban-card-title">${task.title}</div>
+    <div class="kanban-card-meta">
+      ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
+      ${priorityTag(task.priority)}
+      ${over ? `<span class="tag tag-overdue">Overdue</span>` : ''}
+    </div>
+    <div class="kanban-card-foot">
+      <span class="kanban-due ${over ? 'late' : ''}">${fmtDate(task.dueDate)}</span>
+      ${user ? `<div class="assign-chip ${user.avClass}" title="${user.name}">${user.initials}</div>` : ''}
+    </div>
+    ${canEdit && !done ? `
+    <div style="display:flex;gap:5px;margin-top:8px;border-top:1px solid var(--border);padding-top:7px">
+      ${prevStage ? `<button class="stage-move-btn" onclick="event.stopPropagation();moveCard('${task.id}','${prevStage.id}')">
+        <i class="ti ti-arrow-left" style="font-size:11px"></i> ${prevStage.name}
+      </button>` : ''}
+      ${nextStage ? `<button class="stage-move-btn" style="margin-left:auto" onclick="event.stopPropagation();moveCard('${task.id}','${nextStage.id}')">
+        ${nextStage.name} <i class="ti ti-arrow-right" style="font-size:11px"></i>
+      </button>` : `<span style="margin-left:auto;font-size:11px;color:var(--green);font-weight:500">
+        <i class="ti ti-check" style="font-size:11px"></i> Final stage
+      </span>`}
+    </div>` : ''}
+  </div>`;
+}
+
+async function moveCard(taskId, stageId) {
+  await State.moveTaskStage(taskId, stageId);
+  toast('Task moved!');
+  renderKanbanBoard(State.activePipelineId);
+}
+
+/* ── New pipeline modal ─────────────────────────────────── */
+let stageCount = 0;
+
+function openNewPipelineModal() {
+  stageCount = 0;
+  document.getElementById('pf-name').value = '';
+  document.getElementById('pf-desc').value = '';
+  document.getElementById('stage-list').innerHTML = '';
+  addStageInput('');
+  addStageInput('');
+  addStageInput('');
+  document.getElementById('pipeline-form-modal').classList.add('open');
+  setTimeout(() => document.getElementById('pf-name').focus(), 100);
+}
+
+function closePipelineModal() {
+  document.getElementById('pipeline-form-modal').classList.remove('open');
+}
+
+function addStageInput(val = '') {
+  stageCount++;
+  const id = 'stage-inp-' + stageCount;
+  const item = document.createElement('div');
+  item.className = 'stage-item';
+  item.id = 'stage-item-' + stageCount;
+  item.innerHTML = `
+    <i class="ti ti-grip-vertical stage-item-drag" aria-hidden="true"></i>
+    <input type="text" id="${id}" placeholder="Stage name e.g. Documents collected" value="${val}">
+    <button class="stage-item-del" onclick="removeStageItem('stage-item-${stageCount}')" aria-label="Remove stage">
+      <i class="ti ti-trash" aria-hidden="true"></i>
+    </button>`;
+  document.getElementById('stage-list').appendChild(item);
+}
+
+function removeStageItem(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+async function submitPipelineForm() {
+  const name = document.getElementById('pf-name').value.trim();
+  const desc = document.getElementById('pf-desc').value.trim();
+  if (!name) { toast('Please enter a pipeline name', 'error'); return; }
+
+  const stageInputs = document.querySelectorAll('#stage-list input[type=text]');
+  const stageNames  = Array.from(stageInputs).map(i => i.value.trim()).filter(Boolean);
+  if (stageNames.length < 2) { toast('Add at least 2 stages', 'error'); return; }
+
+  const btn = document.querySelector('#pipeline-form-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+
+  const pipeline = await State.addPipeline(name, desc, stageNames);
+  State.activePipelineId = pipeline.id;
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save pipeline'; }
+  closePipelineModal();
+  renderPipelinesPage();
+  toast(`Pipeline "${name}" created!`);
+}
+
+/* ── Add task to pipeline modal ─────────────────────────── */
+let activePipeStageId = null;
+let activePipeId      = null;
+
+function openPipeTaskModal(pipelineId, stageId) {
+  activePipeId      = pipelineId;
+  activePipeStageId = stageId;
+
+  const ptClient   = document.getElementById('pt-client');
+  const ptAssignee = document.getElementById('pt-assignee');
+  ptClient.innerHTML   = `<option value="">Select client…</option>` +
+    State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  ptAssignee.innerHTML = `<option value="">Assign to…</option>` +
+    State.users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+
+  document.getElementById('pt-title').value    = '';
+  document.getElementById('pt-notes').value    = '';
+  document.getElementById('pt-due').value      = '';
+  document.getElementById('pt-priority').value = 'medium';
+  document.getElementById('pipe-task-modal').classList.add('open');
+  setTimeout(() => document.getElementById('pt-title').focus(), 100);
+}
+
+function closePipeTaskModal() {
+  document.getElementById('pipe-task-modal').classList.remove('open');
+  activePipeStageId = null;
+  activePipeId      = null;
+}
+
+async function submitPipeTaskForm() {
+  const title      = document.getElementById('pt-title').value.trim();
+  const clientId   = document.getElementById('pt-client').value;
+  const assigneeId = document.getElementById('pt-assignee').value;
+  const priority   = document.getElementById('pt-priority').value;
+  const dueDate    = document.getElementById('pt-due').value;
+  const notes      = document.getElementById('pt-notes').value.trim();
+
+  if (!title || !clientId || !assigneeId || !dueDate) {
+    toast('Please fill in all required fields', 'error'); return;
+  }
+
+  const btn = document.querySelector('#pipe-task-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+
+  await State.addTask({
+    title, clientId, assigneeId, priority, dueDate, notes,
+    type:            'oneoff',
+    status:          'pending',
+    pipelineId:      activePipeId,
+    pipelineStageId: activePipeStageId,
+  });
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Add task'; }
+  closePipeTaskModal();
+  renderKanbanBoard(activePipeId);
+  toast('Task added to pipeline!');
+}

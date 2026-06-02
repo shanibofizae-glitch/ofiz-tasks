@@ -21,38 +21,53 @@
       <div class="login-sub">Task management for OFIZ Accounting</div>
     </div>
 
-    <div class="login-divider">Sign in as</div>
+    <!-- Step 1: Pick user -->
+    <div id="login-step-1">
+      <div class="login-divider">Sign in as</div>
+      <div class="demo-users" id="user-select-list"></div>
+    </div>
 
-    <div class="demo-users">
-      <button class="demo-user-btn" onclick="loginAs('u1')">
-        <div class="avatar av-admin" style="width:34px;height:34px;font-size:11px">SH</div>
-        <div>
-          <div style="font-weight:600;font-size:13px">Shanib</div>
-          <div style="font-size:11px;color:var(--ink-3)">shanib@ofiz.ae</div>
+    <!-- Step 2: Enter password -->
+    <div id="login-step-2" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+        <button onclick="backToUserSelect()"
+          style="background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:13px;display:flex;align-items:center;gap:4px;padding:0">
+          <i class="ti ti-arrow-left" style="font-size:14px"></i> Back
+        </button>
+      </div>
+      <div id="selected-user-display"
+        style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+          background:var(--bg);border:1px solid var(--border-md);
+          border-radius:var(--radius);margin-bottom:18px">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div style="position:relative">
+          <input type="password" id="login-password" class="form-input"
+            placeholder="Enter your password"
+            onkeydown="if(event.key==='Enter')submitPassword()"
+            style="padding-right:42px">
+          <button onclick="togglePasswordVisibility()"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+              background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:16px"
+            id="pw-toggle-btn">
+            <i class="ti ti-eye" id="pw-toggle-icon"></i>
+          </button>
         </div>
-        <span class="demo-role">Admin</span>
-      </button>
-      <button class="demo-user-btn" onclick="loginAs('u2')">
-        <div class="avatar av-asst" style="width:34px;height:34px;font-size:11px">AA</div>
-        <div>
-          <div style="font-weight:600;font-size:13px">Shafeera</div>
-          <div style="font-size:11px;color:var(--ink-3)">info.ofiz@gmail.com</div>
+        <div id="login-error"
+          style="display:none;color:var(--red);font-size:12px;margin-top:6px">
+          <i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i>
+          Incorrect password. Please try again.
         </div>
-        <span class="demo-role">Assistant</span>
-      </button>
-      <button class="demo-user-btn" onclick="loginAs('u3')">
-        <div class="avatar av-viewer" style="width:34px;height:34px;font-size:11px">RA</div>
-        <div>
-          <div style="font-weight:600;font-size:13px">Assistant 1</div>
-          <div style="font-size:11px;color:var(--ink-3)">izofficeac@gmail.com</div>
-        </div>
-        <span class="demo-role">Viewer</span>
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center"
+        onclick="submitPassword()">
+        <i class="ti ti-login"></i> Sign in
       </button>
     </div>
 
     <div class="login-footer">
-      Connected to Google Sheets.<br>
-      Data layer in <code>js/data.js</code>
+      OFIZ Accounting &mdash; Internal use only
     </div>
   </div>
 </div>
@@ -83,6 +98,9 @@
       </div>
       <div class="nav-item" data-page="clients" onclick="showPage('clients',this)">
         <i class="ti ti-building-store"></i> Clients
+      </div>
+      <div class="nav-item" data-page="pipelines" onclick="showPage('pipelines',this)">
+        <i class="ti ti-layout-kanban"></i> Pipelines
       </div>
       <div class="nav-item" data-page="templates" data-admin-only onclick="showPage('templates',this)">
         <i class="ti ti-repeat"></i> Recurring
@@ -257,6 +275,17 @@
         </div>
       </div>
 
+      <!-- PIPELINES -->
+      <div id="page-pipelines" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+          <div class="pipeline-tabs" id="pipeline-tabs" style="margin-bottom:0;flex:1"></div>
+          <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewPipelineModal()">
+            <i class="ti ti-plus"></i> New pipeline
+          </button>
+        </div>
+        <div id="kanban-board-wrap"></div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -367,6 +396,89 @@
       <button class="btn btn-ghost" onclick="closeClientForm()">Cancel</button>
       <button class="btn btn-primary" onclick="submitClientForm()">
         <i class="ti ti-circle-check"></i> Add client
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW PIPELINE MODAL -->
+<div class="modal-overlay" id="pipeline-form-modal" onclick="if(event.target===this)closePipelineModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="pipeline-form-title">New pipeline</div>
+      <button class="btn btn-ghost btn-sm" onclick="closePipelineModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Pipeline name <span style="color:var(--red)">*</span></label>
+        <input type="text" id="pf-name" class="form-input" placeholder="e.g. VAT Filing Process">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" id="pf-desc" class="form-input" placeholder="Brief description (optional)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stages <span style="color:var(--red)">*</span></label>
+        <div class="stage-list" id="stage-list"></div>
+        <button class="add-stage-btn" onclick="addStageInput()">
+          <i class="ti ti-plus"></i> Add stage
+        </button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePipelineModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitPipelineForm()">
+        <i class="ti ti-circle-check"></i> Save pipeline
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD TASK TO PIPELINE MODAL -->
+<div class="modal-overlay" id="pipe-task-modal" onclick="if(event.target===this)closePipeTaskModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Add task to pipeline</div>
+      <button class="btn btn-ghost btn-sm" onclick="closePipeTaskModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Task title <span style="color:var(--red)">*</span></label>
+        <input type="text" id="pt-title" class="form-input" placeholder="e.g. VAT Q2 — The Den DXB">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Client <span style="color:var(--red)">*</span></label>
+          <select id="pt-client" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assign to <span style="color:var(--red)">*</span></label>
+          <select id="pt-assignee" class="form-select"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Priority</label>
+          <select id="pt-priority" class="form-select">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due date <span style="color:var(--red)">*</span></label>
+          <input type="date" id="pt-due" class="form-input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea id="pt-notes" class="form-textarea" placeholder="Any relevant details…" style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePipeTaskModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitPipeTaskForm()">
+        <i class="ti ti-circle-check"></i> Add task
       </button>
     </div>
   </div>

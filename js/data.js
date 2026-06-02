@@ -13,9 +13,9 @@ const CONFIG = {
 /* ── Demo seed data ─────────────────────────────────────── */
 const DEMO = {
   users: [
-    { id:'u1', name:'Shanib',    email:'shanib.ofiz@gmail.com', role:'admin',     initials:'SH', avClass:'av-admin'  },
-    { id:'u2', name:'Shafeera', email:'info.ofiz@gmail.com',   role:'assistant', initials:'SF', avClass:'av-asst'   },
-    { id:'u3', name:'Admin',  email:'izofficeac@gmail.com',  role:'viewer',    initials:'AA', avClass:'av-viewer' },
+    { id:'u1', name:'Shanib',      email:'shanib.ofizae@gmail.com', role:'admin',     initials:'SH', avClass:'av-admin', password:'Shani123'   },
+    { id:'u2', name:'Shafeera',    email:'info.ofizae@gmail.com',   role:'assistant', initials:'SF', avClass:'av-asst',  password:'Shafee1234' },
+    { id:'u3', name:'Assistant 1', email:'izofficeac@gmail.com',    role:'viewer',    initials:'RA', avClass:'av-viewer',password:'Admin1234'  },
   ],
   clients: [
     { id:'c1', name:'Sorry Guys Marketing Agency', short:'SGMA', color:'#4f8ef7', bg:'rgba(79,142,247,0.12)'  },
@@ -112,18 +112,20 @@ const Sheets = {
   /* Convert task object to a flat array matching sheet columns */
   taskToRow(task) {
     return [
-      task.id          || '',
-      task.title       || '',
-      task.clientId    || '',
-      task.type        || '',
-      task.status      || '',
-      task.priority    || '',
-      task.assigneeId  || '',
-      task.dueDate     || '',
-      task.notes       || '',
-      task.createdAt   || '',
-      task.closedAt    || '',
-      task.closeComment|| '',
+      task.id              || '',
+      task.title           || '',
+      task.clientId        || '',
+      task.type            || '',
+      task.status          || '',
+      task.priority        || '',
+      task.assigneeId      || '',
+      task.dueDate         || '',
+      task.notes           || '',
+      task.createdAt       || '',
+      task.closedAt        || '',
+      task.closeComment    || '',
+      task.pipelineId      || '',
+      task.pipelineStageId || '',
     ];
   },
 
@@ -170,7 +172,7 @@ const Sheets = {
 
   /* Load all tasks from sheet on login */
   async loadTasks() {
-    const rows = await this._get('Tasks!A2:L');
+    const rows = await this._get('Tasks!A2:N');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '')
@@ -186,7 +188,9 @@ const Sheets = {
         notes:        r[8]  || '',
         createdAt:    r[9]  || '',
         closedAt:     r[10] || null,
-        closeComment: r[11] || '',
+        closeComment:    r[11] || '',
+        pipelineId:      r[12] || null,
+        pipelineStageId: r[13] || null,
       }));
   },
 
@@ -218,6 +222,23 @@ const Sheets = {
         color:  r[3] || '#4f8ef7',
         bg:     r[4] || 'rgba(79,142,247,0.12)',
         active: r[5] !== 'false',
+      }));
+  },
+
+  /* Load all users with passwords from Users tab */
+  async loadUsers() {
+    const rows = await this._get('Users!A2:G');
+    if (!rows || rows.length === 0) return [];
+    return rows
+      .filter(r => r[0] && r[0].trim() !== '')
+      .map(r => ({
+        id:       r[0] || '',
+        name:     r[1] || '',
+        email:    r[2] || '',
+        role:     r[3] || 'viewer',
+        initials: r[4] || '??',
+        avClass:  r[5] || 'av-viewer',
+        password: r[6] || '',
       }));
   },
 };
@@ -259,10 +280,11 @@ const State = {
     if (!this.useSheets) return;
     try {
       console.log('[State] Loading from Google Sheets...');
-      const [sheetTasks, sheetComments, sheetClients] = await Promise.all([
+      const [sheetTasks, sheetComments, sheetClients, sheetUsers] = await Promise.all([
         Sheets.loadTasks(),
         Sheets.loadComments(),
         Sheets.loadClients(),
+        Sheets.loadUsers(),
       ]);
       if (sheetTasks.length > 0) {
         const sheetIds = new Set(sheetTasks.map(t => t.id));
@@ -281,6 +303,10 @@ const State = {
         const demoOnly = DEMO.clients.filter(c => !sheetIds.has(c.id));
         this.clients = [...sheetClients, ...demoOnly];
         console.log('[State] Loaded', sheetClients.length, 'clients from Sheets');
+      }
+      if (sheetUsers && sheetUsers.length > 0) {
+        this.users = sheetUsers;
+        console.log('[State] Loaded', sheetUsers.length, 'users from Sheets');
       }
     } catch(e) {
       console.error('[State.loadFromSheets] Failed:', e);
@@ -402,4 +428,67 @@ const State = {
       };
     });
   },
+};
+
+/* ═══════════════════════════════════════════════════════════
+   PIPELINE DATA — added to State
+   ═══════════════════════════════════════════════════════════ */
+const DEMO_PIPELINES = [
+  { id:'pipe1', name:'VAT Filing',          desc:'Monthly VAT return process', active:true },
+  { id:'pipe2', name:'Bank Reconciliation', desc:'Monthly bank rec workflow',   active:true },
+  { id:'pipe3', name:'Client Onboarding',   desc:'New client setup process',    active:true },
+];
+
+const DEMO_STAGES = [
+  { id:'s1', pipelineId:'pipe1', order:1, name:'Documents collected' },
+  { id:'s2', pipelineId:'pipe1', order:2, name:'Review & reconcile'  },
+  { id:'s3', pipelineId:'pipe1', order:3, name:'Submit on FTA'       },
+  { id:'s4', pipelineId:'pipe1', order:4, name:'Save confirmation'   },
+
+  { id:'s5', pipelineId:'pipe2', order:1, name:'Statements received' },
+  { id:'s6', pipelineId:'pipe2', order:2, name:'Transactions posted'  },
+  { id:'s7', pipelineId:'pipe2', order:3, name:'Differences checked'  },
+  { id:'s8', pipelineId:'pipe2', order:4, name:'Reconciled & signed'  },
+
+  { id:'s9',  pipelineId:'pipe3', order:1, name:'Documents collected' },
+  { id:'s10', pipelineId:'pipe3', order:2, name:'System setup'        },
+  { id:'s11', pipelineId:'pipe3', order:3, name:'Opening balances'    },
+  { id:'s12', pipelineId:'pipe3', order:4, name:'First month review'  },
+];
+
+/* Extend State with pipeline data */
+State.pipelines      = [...DEMO_PIPELINES];
+State.stages         = [...DEMO_STAGES];
+State.activePipelineId = State.pipelines[0]?.id || null;
+
+State.getPipeline  = function(id) { return this.pipelines.find(p => p.id === id); };
+State.getStages    = function(pipelineId) { return this.stages.filter(s => s.pipelineId === pipelineId).sort((a,b) => a.order - b.order); };
+State.getPipeTasks = function(pipelineId) { return this.tasks.filter(t => t.pipelineId === pipelineId); };
+
+State.addPipeline = async function(name, desc, stageNames) {
+  const id = 'pipe' + Date.now();
+  const pipeline = { id, name, desc, active:true };
+  this.pipelines.push(pipeline);
+  stageNames.forEach((name, i) => {
+    const stage = { id:'s'+Date.now()+i, pipelineId:id, order:i+1, name };
+    this.stages.push(stage);
+  });
+  if (this.useSheets) {
+    await Sheets._post({ action:'append', tab:'Pipelines', row:[pipeline.id, pipeline.name, pipeline.desc, 'true'] });
+    for (const s of this.stages.filter(s => s.pipelineId === id)) {
+      await Sheets._post({ action:'append', tab:'PipelineStages', row:[s.id, s.pipelineId, s.order, s.name] });
+    }
+  }
+  return pipeline;
+};
+
+State.moveTaskStage = async function(taskId, stageId) {
+  const task = this.getTask(taskId);
+  if (!task) return;
+  task.pipelineStageId = stageId;
+  task.status = 'progress';
+  const stages = this.getStages(task.pipelineId);
+  const lastStage = stages[stages.length - 1];
+  if (lastStage && stageId === lastStage.id) task.status = 'done';
+  if (this.useSheets) await Sheets.updateTask(task);
 };

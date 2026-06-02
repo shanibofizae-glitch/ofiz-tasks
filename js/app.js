@@ -24,6 +24,7 @@ function showPage(pageId, navEl) {
     clients:   'Clients',
     users:     'Users & roles',
     templates: 'Recurring tasks',
+    pipelines: 'Pipelines',
   };
   const titleEl = document.getElementById('page-title');
   if (titleEl) titleEl.textContent = titles[pageId] || '';
@@ -44,15 +45,104 @@ function showPage(pageId, navEl) {
 
 function refreshCurrentPage() {
   switch (currentPage) {
-    case 'dashboard': renderDashboard();  break;
-    case 'tasks':     renderAllTasks();   break;
-    case 'clients':   renderClients();    break;
-    case 'users':     renderUsers();      break;
-    case 'templates': renderTemplates();  break;
+    case 'dashboard': renderDashboard();      break;
+    case 'tasks':     renderAllTasks();       break;
+    case 'clients':   renderClients();        break;
+    case 'users':     renderUsers();          break;
+    case 'templates': renderTemplates();      break;
+    case 'pipelines': renderPipelinesPage();  break;
   }
 }
 
-/* ── Login ──────────────────────────────────────────────── */
+/* ── Login flow ─────────────────────────────────────────── */
+let selectedUserId = null;
+
+function renderUserSelectList() {
+  const list = document.getElementById('user-select-list');
+  if (!list) return;
+  list.innerHTML = State.users.map(u => `
+    <button class="demo-user-btn" onclick="selectUser('${u.id}')">
+      <div class="avatar ${u.avClass}" style="width:34px;height:34px;font-size:11px">${u.initials}</div>
+      <div>
+        <div style="font-weight:600;font-size:13px">${u.name}</div>
+        <div style="font-size:11px;color:var(--ink-3)">${u.email}</div>
+      </div>
+      <span class="demo-role" style="text-transform:capitalize">${u.role}</span>
+    </button>`).join('');
+}
+
+function selectUser(userId) {
+  selectedUserId = userId;
+  const user = State.users.find(u => u.id === userId);
+  if (!user) return;
+
+  /* Show selected user */
+  document.getElementById('selected-user-display').innerHTML = `
+    <div class="avatar ${user.avClass}" style="width:34px;height:34px;font-size:11px">${user.initials}</div>
+    <div>
+      <div style="font-weight:600;font-size:13px">${user.name}</div>
+      <div style="font-size:11px;color:var(--ink-3)">${user.email}</div>
+    </div>
+    <span style="margin-left:auto;font-size:10.5px;font-weight:600;color:var(--ink-3);text-transform:capitalize">${user.role}</span>
+  `;
+
+  /* Switch to password step */
+  document.getElementById('login-step-1').style.display = 'none';
+  document.getElementById('login-step-2').style.display = 'block';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-error').style.display = 'none';
+  setTimeout(() => document.getElementById('login-password').focus(), 100);
+}
+
+function backToUserSelect() {
+  selectedUserId = null;
+  document.getElementById('login-step-1').style.display = 'block';
+  document.getElementById('login-step-2').style.display = 'none';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-error').style.display = 'none';
+}
+
+function togglePasswordVisibility() {
+  const input = document.getElementById('login-password');
+  const icon  = document.getElementById('pw-toggle-icon');
+  if (input.type === 'password') {
+    input.type = 'text';
+    icon.className = 'ti ti-eye-off';
+  } else {
+    input.type = 'password';
+    icon.className = 'ti ti-eye';
+  }
+}
+
+async function submitPassword() {
+  if (!selectedUserId) return;
+  const user     = State.users.find(u => u.id === selectedUserId);
+  const entered  = document.getElementById('login-password').value;
+  const errorEl  = document.getElementById('login-error');
+  const btn      = document.querySelector('#login-step-2 .btn-primary');
+
+  if (!entered) {
+    errorEl.style.display = 'block';
+    errorEl.innerHTML = '<i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i> Please enter your password.';
+    return;
+  }
+
+  /* Check password */
+  if (entered !== user.password) {
+    errorEl.style.display = 'block';
+    errorEl.innerHTML = '<i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i> Incorrect password. Please try again.';
+    document.getElementById('login-password').value = '';
+    document.getElementById('login-password').focus();
+    return;
+  }
+
+  /* Password correct — log in */
+  errorEl.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Signing in…'; }
+  await loginAs(selectedUserId);
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Sign in'; }
+}
+
 async function loginAs(userId) {
   const user = State.users.find(u => u.id === userId);
   if (!user) return;
@@ -85,9 +175,14 @@ async function loginAs(userId) {
 }
 
 function logout() {
-  State.user = null;
+  State.user     = null;
+  selectedUserId = null;
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';
+  document.getElementById('login-step-1').style.display = 'block';
+  document.getElementById('login-step-2').style.display = 'none';
+  document.getElementById('login-password').value       = '';
+  renderUserSelectList();
 }
 
 /* ── Keyboard shortcuts ─────────────────────────────────── */
@@ -112,4 +207,5 @@ document.addEventListener('click', e => {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';
+  renderUserSelectList();
 });
