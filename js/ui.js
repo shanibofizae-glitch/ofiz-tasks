@@ -309,8 +309,8 @@ function renderAllTasks() {
 
   if (groupByClient) {
     _renderTasksGrouped(tasks);
-  } else {
-    renderTaskList(tasks, 'all-task-list');
+  } else if (!calendarView) {
+    _renderTasksByDate(tasks);
   }
 }
 
@@ -344,6 +344,70 @@ function _renderTasksGrouped(tasks) {
         <div class="task-list">${clientTasks.map(renderTaskCard).join('')}</div>
       </div>`;
   }).join('');
+}
+
+function _renderTasksByDate(tasks) {
+  const el = document.getElementById('all-task-list');
+  if (!el) return;
+  if (!tasks.length) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-clipboard-list"></i><p>No tasks found</p></div>`;
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0,10);
+
+  /* Split into overdue, today, upcoming, done, no-date */
+  const overdue  = tasks.filter(t => t.status !== 'done' && t.dueDate && t.dueDate < today);
+  const rest     = tasks.filter(t => !(t.status !== 'done' && t.dueDate && t.dueDate < today));
+
+  /* Group rest by due date */
+  const byDate = {};
+  rest.forEach(t => {
+    const key = t.dueDate || '__none__';
+    (byDate[key] = byDate[key] || []).push(t);
+  });
+  const sortedDates = Object.keys(byDate).sort((a,b) => {
+    if (a === '__none__') return 1;
+    if (b === '__none__') return -1;
+    return a.localeCompare(b);
+  });
+
+  let html = '';
+
+  /* Overdue section */
+  if (overdue.length) {
+    html += `
+    <div class="date-group-head overdue-head">
+      <i class="ti ti-alert-triangle" style="font-size:12px"></i>
+      Overdue
+      <span class="date-group-count">${overdue.length}</span>
+    </div>
+    <div class="date-group-section">
+      ${overdue.map(renderTaskCard).join('')}
+    </div>`;
+  }
+
+  /* Date sections */
+  sortedDates.forEach(date => {
+    const isToday  = date === today;
+    const isNone   = date === '__none__';
+    const label    = isNone   ? 'No due date'
+                   : isToday  ? `Today &mdash; ${fmtDate(date)}`
+                   : fmtDate(date);
+    const cls      = isToday  ? 'today-head' : '';
+    const icon     = isToday  ? 'ti-calendar-event' : 'ti-calendar';
+    html += `
+    <div class="date-group-head ${cls}">
+      <i class="ti ${icon}" style="font-size:12px"></i>
+      ${label}
+      <span class="date-group-count">${byDate[date].length}</span>
+    </div>
+    <div class="date-group-section">
+      ${byDate[date].map(renderTaskCard).join('')}
+    </div>`;
+  });
+
+  el.innerHTML = html;
 }
 
 function toggleGroupByClient() {
@@ -3242,18 +3306,23 @@ function renderChatMessages(channelId) {
   el.innerHTML = msgs.map((m, i) => {
     const own  = m.fromUserId === myId;
     const from = State.getUser(m.fromUserId);
-    /* Date separator */
-    const prevDate = i > 0 ? msgs[i-1].createdAt.slice(0,6) : '';
+    /* Date separator — show when date part changes */
+    const prevDate = i > 0 ? msgs[i-1].createdAt.slice(0,6) : null;
     const thisDate = m.createdAt.slice(0,6);
     const sep = (thisDate !== prevDate)
-      ? `<div class="chat-date-sep">${m.createdAt.slice(0,6)}</div>` : '';
+      ? `<div class="chat-date-sep">${thisDate}</div>` : '';
+    /* Time — last 5 chars of createdAt e.g. "23:14" */
+    const time = m.createdAt.length >= 5 ? m.createdAt.slice(-5) : m.createdAt;
+    const meta = own
+      ? time
+      : `${from?.name || '?'} · ${time}`;
+
     return `${sep}
     <div class="chat-msg ${own ? 'own' : ''}">
-      ${!own ? `<div class="avatar ${from?.avClass||'av-admin'}"
-        style="width:24px;height:24px;font-size:8px;flex-shrink:0">${from?.initials||'?'}</div>` : ''}
+      ${!own ? `<div class="chat-msg-avatar ${from?.avClass||'av-admin'}">${from?.initials||'?'}</div>` : ''}
       <div class="chat-msg-wrap">
         <div class="chat-bubble">${esc(m.text)}</div>
-        <div class="chat-msg-meta">${own ? '' : (from?.name||'') + ' · '}${m.createdAt.slice(-5)}</div>
+        <div class="chat-msg-meta">${meta}</div>
       </div>
     </div>`;
   }).join('');
