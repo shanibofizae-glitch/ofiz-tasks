@@ -293,7 +293,7 @@ function _drawChart(canvas) {
 }
 
 /* ── All tasks page ─────────────────────────────────────── */
-let taskFilter    = { status:'all', type:'all', clientId:'all', assigneeId:'all', search:'' };
+let taskFilter    = { status:'active', type:'all', clientId:'all', assigneeId:'all', search:'' };
 let groupByClient = false;
 
 function renderAllTasks() {
@@ -361,9 +361,19 @@ function toggleGroupByClient() {
 }
 
 function setFilter(key, val, el) {
+  /* Clicking the same type chip again deselects it → show all types */
+  if (key === 'type' && taskFilter[key] === val) {
+    taskFilter[key] = 'all';
+    el.classList.remove('on');
+    renderAllTasks();
+    return;
+  }
   taskFilter[key] = val;
   if (el) {
-    el.closest('.filter-bar').querySelectorAll('.filter-chip').forEach(c => c.classList.remove('on'));
+    /* Only clear chips in the same filter group (status or type) */
+    el.closest('.filter-bar')
+      .querySelectorAll(`.filter-chip[data-filter="${key}"]`)
+      .forEach(c => c.classList.remove('on'));
     el.classList.add('on');
   }
   renderAllTasks();

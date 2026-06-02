@@ -235,16 +235,17 @@
       <!-- ALL TASKS -->
       <div id="page-tasks" class="page">
         <div class="filter-bar">
-          <button class="filter-chip on"  onclick="setFilter('status','all',this)">All</button>
-          <button class="filter-chip"     onclick="setFilter('status','pending',this)">Pending</button>
-          <button class="filter-chip"     onclick="setFilter('status','progress',this)">In progress</button>
-          <button class="filter-chip"     onclick="setFilter('status','overdue',this)">Overdue</button>
-          <button class="filter-chip"     onclick="setFilter('status','done',this)">Done</button>
+          <button class="filter-chip on"  data-filter="status" onclick="setFilter('status','active',this)">Active</button>
+          <button class="filter-chip"     data-filter="status" onclick="setFilter('status','pending',this)">Pending</button>
+          <button class="filter-chip"     data-filter="status" onclick="setFilter('status','progress',this)">In progress</button>
+          <button class="filter-chip"     data-filter="status" onclick="setFilter('status','overdue',this)">Overdue</button>
+          <button class="filter-chip"     data-filter="status" onclick="setFilter('status','done',this)">Done</button>
+          <button class="filter-chip"     data-filter="status" onclick="setFilter('status','all',this)">All</button>
           <div style="width:1px;background:var(--border);margin:0 4px;height:20px;align-self:center"></div>
-          <button class="filter-chip"     onclick="setFilter('type','daily',this)">Daily</button>
-          <button class="filter-chip"     onclick="setFilter('type','weekly',this)">Weekly</button>
-          <button class="filter-chip"     onclick="setFilter('type','monthly',this)">Monthly</button>
-          <button class="filter-chip"     onclick="setFilter('type','oneoff',this)">One-off</button>
+          <button class="filter-chip"     data-filter="type" onclick="setFilter('type','daily',this)">Daily</button>
+          <button class="filter-chip"     data-filter="type" onclick="setFilter('type','weekly',this)">Weekly</button>
+          <button class="filter-chip"     data-filter="type" onclick="setFilter('type','monthly',this)">Monthly</button>
+          <button class="filter-chip"     data-filter="type" onclick="setFilter('type','oneoff',this)">One-off</button>
           <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
             <select id="filter-assignee-select" class="form-select" style="height:32px;font-size:12px;padding:0 28px 0 10px;width:130px;border-radius:20px"></select>
             <select id="filter-client-select" class="form-select" style="height:32px;font-size:12px;padding:0 28px 0 10px;width:160px;border-radius:20px"></select>

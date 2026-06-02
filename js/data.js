@@ -701,12 +701,26 @@ const State = {
 
   /* ── Filter tasks for current view ──────────────────── */
   filterTasks({ status, type, clientId, assigneeId, search } = {}) {
-    const seen = new Set();
+    const today = new Date().toISOString().slice(0,10);
+    const seen  = new Set();
     return this.tasks.filter(t => {
       if (seen.has(t.id)) return false; /* deduplicate */
       seen.add(t.id);
-      if (status     && status     !== 'all' && t.status     !== status)     return false;
-      if (type       && type       !== 'all' && t.type       !== type)       return false;
+
+      /* Status filter — derives effective status from date + status field */
+      if (status && status !== 'all') {
+        const isDone    = t.status === 'done';
+        const isOverdue = !isDone && t.dueDate && t.dueDate < today;
+        const isInProg  = !isDone && !isOverdue && t.status === 'progress';
+        const isPending = !isDone && !isOverdue && !isInProg;
+        if (status === 'active'   && isDone)    return false;
+        if (status === 'done'     && !isDone)   return false;
+        if (status === 'overdue'  && !isOverdue) return false;
+        if (status === 'progress' && !isInProg) return false;
+        if (status === 'pending'  && !isPending) return false;
+      }
+
+      if (type && type !== 'all' && t.type !== type) return false;
       if (clientId   && clientId   !== 'all' && t.clientId   !== clientId)   return false;
       if (assigneeId && assigneeId !== 'all' && t.assigneeId !== assigneeId) return false;
       if (this.user?.role !== 'admin') {
