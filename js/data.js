@@ -13,9 +13,9 @@ const CONFIG = {
 /* ── Demo seed data ─────────────────────────────────────── */
 const DEMO = {
   users: [
-    { id:'u1', name:'Shanib',    email:'shanib@ofiz.ae', role:'admin',     initials:'SH', avClass:'av-admin'  },
-    { id:'u2', name:'Assistant', email:'asst@ofiz.ae',   role:'assistant', initials:'AA', avClass:'av-asst'   },
-    { id:'u3', name:'Rania Al',  email:'rania@ofiz.ae',  role:'viewer',    initials:'RA', avClass:'av-viewer' },
+    { id:'u1', name:'Shanib',    email:'shanib.ofiz@gmail.com', role:'admin',     initials:'SH', avClass:'av-admin'  },
+    { id:'u2', name:'Shafeera', email:'info.ofiz@gmail.com',   role:'assistant', initials:'SF', avClass:'av-asst'   },
+    { id:'u3', name:'Admin',  email:'izofficeac@gmail.com',  role:'viewer',    initials:'AA', avClass:'av-viewer' },
   ],
   clients: [
     { id:'c1', name:'Sorry Guys Marketing Agency', short:'SGMA', color:'#4f8ef7', bg:'rgba(79,142,247,0.12)'  },
