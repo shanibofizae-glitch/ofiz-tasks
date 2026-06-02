@@ -474,10 +474,10 @@ const Sheets = {
    ══════════════════════════════════════════════════════════ */
 const State = {
   user:        null,
-  tasks:       [...DEMO.tasks],
-  comments:    [...DEMO.comments],
-  clients:     [...DEMO.clients],
-  users:       [...DEMO.users],
+  tasks:       [],          /* start empty — populated from Sheets on login */
+  comments:    [],
+  clients:     [...DEMO.clients],   /* fallback if Clients sheet is empty */
+  users:       [...DEMO.users],     /* fallback for login if Sheets offline */
   templates:   [...DEMO.templates],
   activityLog: [],
   documents:   [],
@@ -544,7 +544,7 @@ const State = {
         if (dupes > 0) console.warn(`[State] Removed ${dupes} duplicate task ID(s) from loaded data`);
         console.log('[State] Loaded', this.tasks.length, 'tasks from Sheets (nextId now', this.nextId, ')');
       } else {
-        console.log('[State] No tasks in sheet yet — showing demo data');
+        console.log('[State] Tasks sheet is empty — starting fresh');
       }
       if (sheetComments.length > 0) {
         /* Deduplicate comments by ID */
