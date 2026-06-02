@@ -690,7 +690,7 @@ const State = {
       if (type       && type       !== 'all' && t.type       !== type)       return false;
       if (clientId   && clientId   !== 'all' && t.clientId   !== clientId)   return false;
       if (assigneeId && assigneeId !== 'all' && t.assigneeId !== assigneeId) return false;
-      if (this.user?.role !== 'admin' && this.user?.role !== 'assistant') {
+      if (this.user?.role !== 'admin') {
         if (t.assigneeId !== this.user?.id) return false;
       }
       if (search) {
@@ -706,9 +706,9 @@ const State = {
   /* ── Dashboard stats ─────────────────────────────────── */
   dashStats() {
     const today   = new Date().toISOString().slice(0,10);
-    const visible = this.user?.role === 'viewer'
-      ? this.tasks.filter(t => t.assigneeId === this.user.id)
-      : this.tasks;
+    const visible = this.user?.role === 'admin'
+      ? this.tasks
+      : this.tasks.filter(t => t.assigneeId === this.user?.id);
     return {
       total:    visible.length,
       dueToday: visible.filter(t => t.status !== 'done' && t.dueDate === today).length,

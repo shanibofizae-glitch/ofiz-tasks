@@ -291,8 +291,13 @@ let taskFilter    = { status:'all', type:'all', clientId:'all', assigneeId:'all'
 let groupByClient = false;
 
 function renderAllTasks() {
-  const tasks = State.filterTasks(taskFilter);
-  const lbl   = document.getElementById('task-count-label');
+  const tasks = State.filterTasks(taskFilter).sort((a, b) => {
+    if (!a.dueDate && !b.dueDate) return 0;
+    if (!a.dueDate) return 1;
+    if (!b.dueDate) return -1;
+    return a.dueDate.localeCompare(b.dueDate);
+  });
+  const lbl = document.getElementById('task-count-label');
   if (lbl) lbl.textContent = `${tasks.length} task${tasks.length !== 1 ? 's' : ''}`;
   renderSavedViews();
 
@@ -782,6 +787,7 @@ function openNewTaskModal() {
   editTaskId = null;
   document.getElementById('task-form-title').textContent = 'New task';
   document.getElementById('task-form').reset();
+  populateFormDropdowns(); /* refresh all dropdowns including pipelines */
   const ps = document.getElementById('tf-pipeline');
   if (ps) { ps.value = ''; onPipelineSelectChange(''); }
   document.getElementById('task-form-modal').classList.add('open');
@@ -792,6 +798,7 @@ function openEditModal(taskId) {
   const task = State.getTask(taskId);
   if (!task) return;
   closeTaskModal();
+  populateFormDropdowns(); /* refresh all dropdowns including pipelines */
   document.getElementById('task-form-title').textContent = 'Edit task';
   document.getElementById('tf-title').value    = task.title;
   document.getElementById('tf-client').value   = task.clientId;
@@ -816,6 +823,9 @@ function closeTaskForm() {
 }
 
 async function submitTaskForm() {
+  if (State.user?.role !== 'admin') {
+    toast('Only admins can create or edit tasks', 'error'); return;
+  }
   const title      = document.getElementById('tf-title').value.trim();
   const clientId   = document.getElementById('tf-client').value;
   const assigneeId = document.getElementById('tf-assignee').value;
