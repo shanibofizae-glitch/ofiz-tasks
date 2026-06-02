@@ -24,11 +24,11 @@ const DEMO = {
     { id:'u3', name:'Assistant 1', email:'izofficeac@gmail.com',    role:'viewer',    initials:'RA', avClass:'av-viewer',password:'Admin1234'  },
   ],
   clients: [
-    { id:'c1', name:'Sorry Guys Marketing Agency', short:'SGMA', color:'#4f8ef7', bg:'rgba(79,142,247,0.12)'  },
-    { id:'c2', name:'The Den DXB',                 short:'DEN',  color:'#a78bfa', bg:'rgba(167,139,250,0.12)' },
-    { id:'c3', name:'Into The Room',               short:'ITR',  color:'#34c27a', bg:'rgba(52,194,122,0.12)'  },
-    { id:'c4', name:'Trade Capital Partners',      short:'TCP',  color:'#f5a623', bg:'rgba(245,166,35,0.12)'  },
-    { id:'c5', name:'Global Data Comm. Services',  short:'GDCS', color:'#f05454', bg:'rgba(240,84,84,0.12)'   },
+    { id:'c1', name:'Sorry Guys Marketing Agency', short:'SGMA', color:'#4f8ef7', bg:'rgba(79,142,247,0.12)',  active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
+    { id:'c2', name:'The Den DXB',                 short:'DEN',  color:'#a78bfa', bg:'rgba(167,139,250,0.12)', active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
+    { id:'c3', name:'Into The Room',               short:'ITR',  color:'#34c27a', bg:'rgba(52,194,122,0.12)',  active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
+    { id:'c4', name:'Trade Capital Partners',      short:'TCP',  color:'#f5a623', bg:'rgba(245,166,35,0.12)',  active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
+    { id:'c5', name:'Global Data Comm. Services',  short:'GDCS', color:'#f05454', bg:'rgba(240,84,84,0.12)',   active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
   ],
   tasks: [
     { id:'t1',  title:'Bank reconciliation',          clientId:'c2', type:'monthly', status:'overdue',  priority:'high',   assigneeId:'u2', dueDate:'2026-05-30', notes:'Waiting for May bank statement.',       createdAt:'2026-05-01', closedAt:null,         closeComment:'' },
@@ -145,18 +145,28 @@ const Sheets = {
   },
 
   /* ── Client writes ────────────────────────────────── */
+  _clientRow(c) {
+    return [
+      c.id, c.name, c.short, c.color, c.bg, String(c.active),
+      c.tradeLicense||'', c.trn||'', c.vatNumber||'', c.incorporationDate||'',
+      c.contactName||'', c.contactPhone||'', c.contactEmail||'', c.contactWhatsapp||'',
+      c.classification||'Mainland', String(c.vatRegistered||false),
+      String(c.wpsRequired||false), String(c.payrollManaged||false),
+      c.assignedAccountantId||'', c.clientSince||'',
+    ];
+  },
+
   async updateClient(client) {
     const rowNum = await this.findRow('Clients', client.id);
     if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Clients', rowNum,
-      row:[client.id, client.name, client.short, client.color, client.bg, String(client.active)] }));
+    return !!(await this._post({ action:'update', tab:'Clients', rowNum, row:this._clientRow(client) }));
   },
 
   async deleteClient(clientId) {
     const rowNum = await this.findRow('Clients', clientId);
     if (rowNum < 0) return false;
     return !!(await this._post({ action:'update', tab:'Clients', rowNum,
-      row:['','','','','',''] }));
+      row:['','','','','','','','','','','','','','','','','','','',''] }));
   },
 
   /* ── Pipeline delete ──────────────────────────────── */
@@ -332,17 +342,31 @@ const Sheets = {
 
   /* Load all clients from Clients tab on login */
   async loadClients() {
-    const rows = await this._get('Clients!A2:F');
+    const rows = await this._get('Clients!A2:T');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
       .map(r => ({
-        id:     r[0] || '',
-        name:   r[1] || '',
-        short:  r[2] || '',
-        color:  r[3] || '#4f8ef7',
-        bg:     r[4] || 'rgba(79,142,247,0.12)',
-        active: r[5] !== 'false',
+        id:                   r[0]  || '',
+        name:                 r[1]  || '',
+        short:                r[2]  || '',
+        color:                r[3]  || '#4f8ef7',
+        bg:                   r[4]  || 'rgba(79,142,247,0.12)',
+        active:               r[5]  !== 'false',
+        tradeLicense:         r[6]  || '',
+        trn:                  r[7]  || '',
+        vatNumber:            r[8]  || '',
+        incorporationDate:    r[9]  || '',
+        contactName:          r[10] || '',
+        contactPhone:         r[11] || '',
+        contactEmail:         r[12] || '',
+        contactWhatsapp:      r[13] || '',
+        classification:       r[14] || 'Mainland',
+        vatRegistered:        r[15] === 'true',
+        wpsRequired:          r[16] === 'true',
+        payrollManaged:       r[17] === 'true',
+        assignedAccountantId: r[18] || '',
+        clientSince:          r[19] || '',
       }));
   },
 
@@ -405,43 +429,58 @@ const Sheets = {
 
   /* Load templates from Templates tab */
   async loadTemplates() {
-    const rows = await this._get('Templates!A2:H');
+    const rows = await this._get('Templates!A2:P');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '')
       .map(r => ({
-        id:         r[0] || '',
-        title:      r[1] || '',
-        clientId:   r[2] || '',
-        recurrence: r[3] || 'monthly',
-        dayOfMonth: r[4] ? Number(r[4]) : null,
-        dayOfWeek:  r[5] || null,
-        assigneeId: r[6] || '',
-        active:     r[7] !== 'false',
+        id:                   r[0]  || '',
+        title:                r[1]  || '',
+        clientId:             r[2]  || '',
+        recurrence:           r[3]  || 'monthly',
+        dayOfMonth:           r[4]  ? Number(r[4]) : null,
+        dayOfWeek:            r[5]  || null,
+        assigneeId:           r[6]  || '',
+        active:               r[7]  !== 'false',
+        priority:             r[8]  || 'medium',
+        notes:                r[9]  || '',
+        subtasks:             _parseSt(r[10]),
+        pipelineId:           r[11] || '',
+        pipelineStageId:      r[12] || '',
+        estimatedHours:       r[13] ? Number(r[13]) : 0,
+        defaultComments:      _parseSt(r[14]),
+        templateDependencies: _parseSt(r[15]),
       }));
   },
 
+  _templateRow(t) {
+    return [
+      t.id, t.title, t.clientId, t.recurrence,
+      t.dayOfMonth || '', t.dayOfWeek || '', t.assigneeId, String(t.active),
+      t.priority || 'medium', t.notes || '',
+      (t.subtasks?.length)             ? JSON.stringify(t.subtasks)             : '',
+      t.pipelineId || '', t.pipelineStageId || '',
+      t.estimatedHours || '',
+      (t.defaultComments?.length)      ? JSON.stringify(t.defaultComments)      : '',
+      (t.templateDependencies?.length) ? JSON.stringify(t.templateDependencies) : '',
+    ];
+  },
+
   async addTemplate(template) {
-    return !!(await this._post({ action:'append', tab:'Templates',
-      row:[template.id, template.title, template.clientId, template.recurrence,
-           template.dayOfMonth || '', template.dayOfWeek || '',
-           template.assigneeId, String(template.active)] }));
+    return !!(await this._post({ action:'append', tab:'Templates', row:this._templateRow(template) }));
   },
 
   async updateTemplate(template) {
     const rowNum = await this.findRow('Templates', template.id);
     if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Templates', rowNum,
-      row:[template.id, template.title, template.clientId, template.recurrence,
-           template.dayOfMonth || '', template.dayOfWeek || '',
-           template.assigneeId, String(template.active)] }));
+    return !!(await this._post({ action:'update', tab:'Templates', rowNum, row:this._templateRow(template) }));
   },
 
   async deleteTemplate(templateId) {
     const rowNum = await this.findRow('Templates', templateId);
     if (rowNum < 0) return false;
     return !!(await this._post({ action:'update', tab:'Templates', rowNum,
-      row:['','','','','','','',''] }));
+      row:['','','','','','','','','','','','','','','',''] }));
   },
 
   /* Load pipelines from Pipelines tab */
@@ -893,7 +932,7 @@ State.updateClient = async function(id, patch) {
   const idx = this.clients.findIndex(c => c.id === id);
   if (idx < 0) return null;
   Object.assign(this.clients[idx], patch);
-  if (this.useSheets) Sheets.updateClient(this.clients[idx]);
+  if (this.useSheets) await Sheets.updateClient(this.clients[idx]);
   return this.clients[idx];
 };
 
@@ -906,7 +945,7 @@ State.deleteClient = async function(id) {
     } else {
       /* Demo client not in sheet — write tombstone */
       await Sheets._post({ action:'append', tab:'Clients',
-        row:[id, '__deleted__', '', '', '', ''] });
+        row:[id, '__deleted__', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''] });
     }
   }
 };

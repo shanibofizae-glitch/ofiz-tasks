@@ -385,7 +385,7 @@ function renderClients() {
   if (!el) return;
   const health = State.clientHealth();
   el.innerHTML = health.map(c => `
-    <div class="client-card" onclick="filterByClient('${c.id}')">
+    <div class="client-card" onclick="openClientProfile('${c.id}')">
       <div class="client-initial" style="background:${c.bg};color:${c.color}">${c.short}</div>
       <div class="client-name">${c.name}</div>
       <div class="client-stats">
@@ -407,7 +407,7 @@ function renderClients() {
 
 function filterByClient(clientId) {
   taskFilter.clientId = clientId;
-  taskFilter.status   = 'all';
+  taskFilter.status   = 'active';
   taskFilter.type     = 'all';
   showPage('tasks', document.querySelector('[data-page=tasks]'));
   setTimeout(renderAllTasks, 50);
@@ -469,8 +469,7 @@ async function submitClientForm() {
     const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true };
     State.clients.push(newClient);
     if (State.useSheets) {
-      await Sheets._post({ action:'append', tab:'Clients',
-        row:[newClient.id, newClient.name, newClient.short, newClient.color, newClient.bg, 'true'] });
+      await Sheets._post({ action:'append', tab:'Clients', row:Sheets._clientRow(newClient) });
     }
     if (saveBtn) { saveBtn.disabled = false; }
     closeClientForm();
@@ -696,13 +695,20 @@ function openTaskModal(taskId, tab) {
     <span style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">
       Created ${fmtDate(task.createdAt)}
     </span>
-    <div style="display:flex;gap:7px">
-      ${canEdit ? `<button class="btn btn-ghost btn-sm" onclick="openEditModal('${task.id}')">
-        <i class="ti ti-edit"></i> Edit
-      </button>` : ''}
-      ${canEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">
-        <i class="ti ti-trash"></i> Delete
-      </button>` : ''}
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      ${canEdit ? `
+        <button class="btn btn-ghost btn-sm" onclick="duplicateTask('${task.id}')">
+          <i class="ti ti-copy"></i> Duplicate
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="saveAsTemplate('${task.id}')">
+          <i class="ti ti-repeat"></i> Save as template
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="openEditModal('${task.id}')">
+          <i class="ti ti-edit"></i> Edit
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">
+          <i class="ti ti-trash"></i> Delete
+        </button>` : ''}
     </div>
   `;
 
@@ -935,11 +941,18 @@ function _populateTemplateLists() {
 
 function openNewTemplateModal() {
   editTemplateId = null;
+  _tmfSubtasks   = [];
   document.querySelector('#template-form-modal .modal-title').textContent = 'New recurring template';
   document.getElementById('tmf-title').value      = '';
   document.getElementById('tmf-recurrence').value = 'monthly';
   document.getElementById('tmf-day-month').value  = '';
   document.getElementById('tmf-day-week').value   = 'Mon';
+  document.getElementById('tmf-priority').value   = 'medium';
+  document.getElementById('tmf-notes').value      = '';
+  document.getElementById('tmf-hours').value      = '';
+  document.getElementById('tmf-comments').value   = '';
+  document.getElementById('tmf-advanced').style.display = 'none';
+  _renderTemplatChecklist();
   _populateTemplateLists();
   onTemplateRecurrenceChange('monthly');
   document.getElementById('template-form-modal').classList.add('open');
@@ -948,6 +961,7 @@ function openNewTemplateModal() {
 
 function openEditTemplateModal(templateId) {
   editTemplateId = templateId;
+  _tmfSubtasks   = [];
   const tp = State.templates.find(t => t.id === templateId);
   if (!tp) return;
   document.querySelector('#template-form-modal .modal-title').textContent = 'Edit template';
@@ -959,6 +973,22 @@ function openEditTemplateModal(templateId) {
   onTemplateRecurrenceChange(tp.recurrence);
   if (tp.recurrence === 'monthly') document.getElementById('tmf-day-month').value = tp.dayOfMonth || '';
   if (tp.recurrence === 'weekly')  document.getElementById('tmf-day-week').value  = tp.dayOfWeek  || 'Mon';
+  /* Advanced fields */
+  document.getElementById('tmf-priority').value = tp.priority || 'medium';
+  document.getElementById('tmf-notes').value    = tp.notes || '';
+  document.getElementById('tmf-hours').value    = tp.estimatedHours || '';
+  document.getElementById('tmf-comments').value = (tp.defaultComments||[]).join('\n');
+  if (tp.pipelineId) {
+    document.getElementById('tmf-pipeline').value = tp.pipelineId;
+    onTemplatePipelineChange(tp.pipelineId);
+    setTimeout(() => { document.getElementById('tmf-stage').value = tp.pipelineStageId || ''; }, 50);
+  }
+  /* Checklist */
+  _tmfSubtasks = (tp.subtasks || []).map(s => s.text || s);
+  _renderTemplatChecklist();
+  if (_tmfSubtasks.length || tp.notes || tp.priority !== 'medium') {
+    document.getElementById('tmf-advanced').style.display = '';
+  }
   document.getElementById('template-form-modal').classList.add('open');
 }
 
@@ -999,17 +1029,30 @@ async function submitTemplateForm() {
     toast('Please fill in title, client and assignee', 'error'); return;
   }
 
+  const priority        = document.getElementById('tmf-priority')?.value || 'medium';
+  const notes           = document.getElementById('tmf-notes')?.value.trim() || '';
+  const estimatedHours  = parseFloat(document.getElementById('tmf-hours')?.value) || 0;
+  const pipelineId      = document.getElementById('tmf-pipeline')?.value || '';
+  const pipelineStageId = document.getElementById('tmf-stage')?.value || '';
+  const commentsRaw     = document.getElementById('tmf-comments')?.value.trim() || '';
+  const defaultComments = commentsRaw ? commentsRaw.split('\n').map(s=>s.trim()).filter(Boolean) : [];
+  const subtasks        = _tmfSubtasks.map((text,i) => ({ id:'st'+Date.now()+i, text, done:false }));
+
+  const templateData = { title, clientId, assigneeId, recurrence, dayOfMonth, dayOfWeek,
+    priority, notes, subtasks, pipelineId, pipelineStageId, estimatedHours,
+    defaultComments, templateDependencies:[] };
+
   const btn = document.querySelector('#template-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
   if (editTemplateId) {
-    await State.updateTemplate(editTemplateId, { title, clientId, assigneeId, recurrence, dayOfMonth, dayOfWeek });
+    await State.updateTemplate(editTemplateId, templateData);
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
     closeTemplateModal();
     renderTemplates();
     toast('Template updated!');
   } else {
-    await State.addTemplate({ title, clientId, assigneeId, recurrence, dayOfMonth, dayOfWeek });
+    await State.addTemplate(templateData);
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
     closeTemplateModal();
     renderTemplates();
@@ -1282,15 +1325,21 @@ async function generateFromTemplates() {
         t.title.startsWith(tp.title))));
     if (exists) { skipped.push(tp.title); continue; }
     const task = await State.addTask({
-      title:      titleKey,
-      clientId:   tp.clientId,
-      assigneeId: tp.assigneeId,
-      type:       tp.recurrence,
-      priority:   'medium',
+      title:           titleKey,
+      clientId:        tp.clientId,
+      assigneeId:      tp.assigneeId,
+      type:            tp.recurrence,
+      priority:        tp.priority || 'medium',
       dueDate,
-      notes:      '',
-      status:     'pending',
+      notes:           tp.notes || '',
+      status:          'pending',
+      subtasks:        (tp.subtasks||[]).map(s => ({...s, id:'st'+Date.now()+Math.random(), done:false})),
+      pipelineId:      tp.pipelineId || null,
+      pipelineStageId: tp.pipelineStageId || null,
     });
+    for (const comment of (tp.defaultComments||[])) {
+      await State.addComment(task.id, comment);
+    }
     created.push(task);
   }
 
@@ -2680,6 +2729,389 @@ async function logTimeEntry(taskId) {
 async function deleteTimeEntry(taskId, logId) {
   await State.deleteTimeLog(logId);
   openTaskModal(taskId);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DUPLICATE TASK + SAVE AS TEMPLATE
+   ═══════════════════════════════════════════════════════════ */
+async function duplicateTask(taskId) {
+  const src = State.getTask(taskId);
+  if (!src) return;
+  await State.addTask({
+    title:      `${src.title} (Copy)`,
+    clientId:   src.clientId,
+    assigneeId: src.assigneeId,
+    type:       src.type,
+    priority:   src.priority,
+    dueDate:    src.dueDate,
+    notes:      src.notes || '',
+    status:     'pending',
+    subtasks:   (src.subtasks || []).map(s => ({ ...s, id:'st'+Date.now()+Math.random(), done:false })),
+  });
+  closeTaskModal();
+  toast('Task duplicated!');
+  refreshCurrentPage();
+}
+
+async function saveAsTemplate(taskId) {
+  const src = State.getTask(taskId);
+  if (!src) return;
+  /* Pre-fill template form with task data */
+  openNewTemplateModal();
+  document.querySelector('#template-form-modal .modal-title').textContent = 'Save as template';
+  document.getElementById('tmf-title').value    = src.title;
+  document.getElementById('tmf-client').value   = src.clientId;
+  document.getElementById('tmf-assignee').value = src.assigneeId;
+  /* Open advanced section and fill it */
+  document.getElementById('tmf-advanced').style.display = '';
+  document.getElementById('tmf-priority').value  = src.priority || 'medium';
+  document.getElementById('tmf-notes').value     = src.notes || '';
+  document.getElementById('tmf-hours').value     = '';
+  if (src.pipelineId) {
+    document.getElementById('tmf-pipeline').value = src.pipelineId;
+    onTemplatePipelineChange(src.pipelineId);
+    setTimeout(() => { document.getElementById('tmf-stage').value = src.pipelineStageId || ''; }, 100);
+  }
+  /* Populate checklist */
+  document.getElementById('tmf-subtask-list').innerHTML = '';
+  (src.subtasks || []).forEach(s => _addTemplateChecklistRow(s.text));
+  closeTaskModal();
+  document.getElementById('template-form-modal').classList.add('open');
+  toast('Task details loaded into template form — set the recurrence schedule and save');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CLIENT PROFILE
+   ═══════════════════════════════════════════════════════════ */
+let _clientProfileId   = null;
+let _clientProfileEdit = false;
+
+function openClientProfile(clientId) {
+  _clientProfileId   = clientId;
+  _clientProfileEdit = false;
+  const c = State.getClient(clientId);
+  if (!c) return;
+  document.getElementById('cp-modal-title').textContent = c.name;
+  _renderClientProfileView(clientId);
+  document.getElementById('client-profile-modal').classList.add('open');
+}
+
+function closeClientProfile() {
+  document.getElementById('client-profile-modal').classList.remove('open');
+  _clientProfileId   = null;
+  _clientProfileEdit = false;
+}
+
+function toggleClientProfileEdit() {
+  _clientProfileEdit = !_clientProfileEdit;
+  const btn = document.getElementById('cp-edit-btn');
+  if (_clientProfileEdit) {
+    _renderClientProfileEdit(_clientProfileId);
+    if (btn) btn.innerHTML = '<i class="ti ti-x"></i> Cancel';
+  } else {
+    _renderClientProfileView(_clientProfileId);
+    if (btn) btn.innerHTML = '<i class="ti ti-edit"></i> Edit';
+  }
+}
+
+function _renderClientProfileView(clientId) {
+  const c     = State.getClient(clientId);
+  const h     = State.clientHealth().find(x => x.id === clientId) || { total:0, done:0, overdue:0, pct:0 };
+  const today = new Date().toISOString().slice(0,10);
+  const totalHours = State.timeLogs
+    .filter(l => l.taskId && State.getTask(l.taskId)?.clientId === clientId)
+    .reduce((s,l) => s + l.hours, 0);
+  const assignee = State.getUser(c.assignedAccountantId);
+  const docs     = State.getClientDocs(clientId);
+  const expDocs  = docs.filter(d => d.expiryDate <= new Date(Date.now()+30*86400000).toISOString().slice(0,10));
+
+  const clsBadge = {
+    'Mainland':  'background:var(--blue-light);color:var(--blue)',
+    'Free Zone': 'background:var(--purple-light);color:var(--purple)',
+    'Offshore':  'background:var(--bg-active);color:var(--ink-2)',
+  }[c.classification || 'Mainland'] || '';
+
+  const services = [
+    c.vatRegistered   && { label:'VAT Registered',  icon:'ti-receipt',   color:'var(--accent)'  },
+    c.wpsRequired     && { label:'WPS Required',     icon:'ti-cash',      color:'var(--amber)'   },
+    c.payrollManaged  && { label:'Payroll Managed',  icon:'ti-users',     color:'var(--blue)'    },
+  ].filter(Boolean);
+
+  const el = document.getElementById('cp-body');
+  el.innerHTML = `
+    <!-- Header -->
+    <div class="cp-header">
+      <div class="cp-avatar" style="background:${c.bg};color:${c.color}">${c.short}</div>
+      <div>
+        <div class="cp-name">${esc(c.name)}</div>
+        <div class="cp-short">${c.short}</div>
+        <div class="cp-class-badge" style="${clsBadge}">${c.classification || 'Mainland'}</div>
+      </div>
+      ${expDocs.length ? `<div style="margin-left:auto;font-size:11.5px;font-weight:600;
+        color:var(--amber);background:var(--amber-light);border-radius:var(--radius-sm);
+        padding:5px 10px;display:flex;align-items:center;gap:5px">
+        <i class="ti ti-alert-triangle"></i> ${expDocs.length} doc${expDocs.length!==1?'s':''} expiring
+      </div>` : ''}
+    </div>
+
+    <!-- Stats row -->
+    <div class="cp-section">
+      <div class="cp-stat-row">
+        <div class="cp-stat">
+          <div class="cp-stat-val">${h.total}</div>
+          <div class="cp-stat-lbl">Total tasks</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-val" style="color:var(--accent)">${h.done}</div>
+          <div class="cp-stat-lbl">Completed</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-val" style="color:${h.overdue?'var(--red)':'var(--ink)'}">${h.overdue}</div>
+          <div class="cp-stat-lbl">Overdue</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-val">${totalHours.toFixed(1)}h</div>
+          <div class="cp-stat-lbl">Hours logged</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-val">${docs.length}</div>
+          <div class="cp-stat-lbl">Documents</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Business details -->
+    <div class="cp-section">
+      <div class="cp-section-title"><i class="ti ti-building" style="font-size:11px"></i> Business details</div>
+      <div class="cp-grid">
+        ${_cpField('Trade License', c.tradeLicense)}
+        ${_cpField('TRN', c.trn)}
+        ${_cpField('VAT Number', c.vatNumber)}
+        ${_cpField('Incorporated', c.incorporationDate ? fmtDate(c.incorporationDate) : '')}
+        ${_cpField('Client since', c.clientSince ? fmtDate(c.clientSince) : '')}
+        ${_cpField('Account manager', assignee?.name || '')}
+      </div>
+    </div>
+
+    <!-- Contact -->
+    <div class="cp-section">
+      <div class="cp-section-title"><i class="ti ti-phone" style="font-size:11px"></i> Contact</div>
+      <div class="cp-grid">
+        ${_cpField('Contact person', c.contactName)}
+        ${_cpField('Phone', c.contactPhone)}
+        ${_cpField('Email', c.contactEmail)}
+        ${_cpField('WhatsApp', c.contactWhatsapp)}
+      </div>
+      ${c.contactWhatsapp ? `
+      <div style="margin-top:10px">
+        <a href="https://wa.me/${c.contactWhatsapp.replace(/\D/g,'')}" target="_blank"
+          class="btn btn-success btn-sm">
+          <i class="ti ti-brand-whatsapp"></i> Message on WhatsApp
+        </a>
+      </div>` : ''}
+    </div>
+
+    <!-- Services -->
+    ${services.length ? `
+    <div class="cp-section">
+      <div class="cp-section-title"><i class="ti ti-settings" style="font-size:11px"></i> Services</div>
+      <div class="cp-services">
+        ${services.map(s => `
+        <span class="cp-service-tag" style="background:var(--bg);border:1px solid var(--border-md);color:${s.color}">
+          <i class="ti ${s.icon}" style="font-size:11px"></i> ${s.label}
+        </span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- Quick actions -->
+    <div class="cp-section" style="border-bottom:none;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="filterByClient('${clientId}');closeClientProfile()">
+        <i class="ti ti-list-check"></i> View tasks
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="closeClientProfile();showPage('documents',document.querySelector('[data-page=documents]'))">
+        <i class="ti ti-file-certificate"></i> View documents
+      </button>
+      <button class="btn btn-primary btn-sm" data-admin-only onclick="closeClientProfile();openNewTaskModal();document.getElementById('tf-client').value='${clientId}'">
+        <i class="ti ti-plus"></i> Add task
+      </button>
+    </div>`;
+
+  /* Apply admin-only visibility */
+  if (State.user?.role !== 'admin') {
+    el.querySelectorAll('[data-admin-only]').forEach(e => e.style.display = 'none');
+  }
+}
+
+function _cpField(label, value) {
+  const empty = !value || !String(value).trim();
+  return `<div class="cp-field">
+    <label>${label}</label>
+    <span class="${empty ? 'empty' : ''}">${empty ? '—' : esc(String(value))}</span>
+  </div>`;
+}
+
+function _renderClientProfileEdit(clientId) {
+  const c  = State.getClient(clientId);
+  const el = document.getElementById('cp-body');
+  el.innerHTML = `
+  <div style="padding:20px 22px">
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Trade License</label>
+        <input type="text" id="cpe-tl" class="form-input" value="${esc(c.tradeLicense||'')}"></div>
+      <div class="form-group"><label class="form-label">TRN</label>
+        <input type="text" id="cpe-trn" class="form-input" value="${esc(c.trn||'')}" style="font-family:var(--mono)"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">VAT Number</label>
+        <input type="text" id="cpe-vat" class="form-input" value="${esc(c.vatNumber||'')}" style="font-family:var(--mono)"></div>
+      <div class="form-group"><label class="form-label">Classification</label>
+        <select id="cpe-class" class="form-select">
+          <option value="Mainland" ${(c.classification||'Mainland')==='Mainland'?'selected':''}>Mainland</option>
+          <option value="Free Zone" ${c.classification==='Free Zone'?'selected':''}>Free Zone</option>
+          <option value="Offshore"  ${c.classification==='Offshore'?'selected':''}>Offshore</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Incorporation date</label>
+        <input type="date" id="cpe-inc" class="form-input" value="${c.incorporationDate||''}"></div>
+      <div class="form-group"><label class="form-label">Client since</label>
+        <input type="date" id="cpe-since" class="form-input" value="${c.clientSince||''}"></div>
+    </div>
+    <div class="divider"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Contact person</label>
+        <input type="text" id="cpe-cname" class="form-input" value="${esc(c.contactName||'')}"></div>
+      <div class="form-group"><label class="form-label">Phone</label>
+        <input type="tel" id="cpe-phone" class="form-input" value="${esc(c.contactPhone||'')}" style="font-family:var(--mono)"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Email</label>
+        <input type="email" id="cpe-email" class="form-input" value="${esc(c.contactEmail||'')}"></div>
+      <div class="form-group"><label class="form-label">WhatsApp</label>
+        <input type="tel" id="cpe-wa" class="form-input" value="${esc(c.contactWhatsapp||'')}" style="font-family:var(--mono)" placeholder="+971 50 123 4567"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Account manager</label>
+        <select id="cpe-acct" class="form-select">
+          <option value="">—</option>
+          ${State.users.map(u => `<option value="${u.id}" ${c.assignedAccountantId===u.id?'selected':''}>${u.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="form-group">
+      <label class="form-label">Services</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cpe-vat-reg" ${c.vatRegistered?'checked':''}> VAT Registered
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cpe-wps" ${c.wpsRequired?'checked':''}> WPS Required
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cpe-pay" ${c.payrollManaged?'checked':''}> Payroll Managed
+        </label>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+      <button class="btn btn-ghost" onclick="toggleClientProfileEdit()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveClientProfile('${clientId}')">
+        <i class="ti ti-circle-check"></i> Save
+      </button>
+    </div>
+  </div>`;
+}
+
+async function saveClientProfile(clientId) {
+  const patch = {
+    tradeLicense:         document.getElementById('cpe-tl').value.trim(),
+    trn:                  document.getElementById('cpe-trn').value.trim(),
+    vatNumber:            document.getElementById('cpe-vat').value.trim(),
+    classification:       document.getElementById('cpe-class').value,
+    incorporationDate:    document.getElementById('cpe-inc').value,
+    clientSince:          document.getElementById('cpe-since').value,
+    contactName:          document.getElementById('cpe-cname').value.trim(),
+    contactPhone:         document.getElementById('cpe-phone').value.trim(),
+    contactEmail:         document.getElementById('cpe-email').value.trim(),
+    contactWhatsapp:      document.getElementById('cpe-wa').value.trim(),
+    assignedAccountantId: document.getElementById('cpe-acct').value,
+    vatRegistered:        document.getElementById('cpe-vat-reg').checked,
+    wpsRequired:          document.getElementById('cpe-wps').checked,
+    payrollManaged:       document.getElementById('cpe-pay').checked,
+  };
+  const btn = document.querySelector('#cp-body .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+  await State.updateClient(clientId, patch);
+  toast('Client profile saved!');
+  _clientProfileEdit = false;
+  document.getElementById('cp-edit-btn').innerHTML = '<i class="ti ti-edit"></i> Edit';
+  _renderClientProfileView(clientId);
+  renderClients();
+  renderSettingsClients();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TEMPLATE ADVANCED FIELDS
+   ═══════════════════════════════════════════════════════════ */
+let _tmfSubtasks = []; /* checklist items in template form */
+
+function _populateTemplateLists() {
+  document.getElementById('tmf-client').innerHTML =
+    `<option value="">Select client…</option>` +
+    State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('tmf-assignee').innerHTML =
+    `<option value="">Assign to…</option>` +
+    State.users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  /* Populate pipeline dropdown in template form */
+  const psel = document.getElementById('tmf-pipeline');
+  if (psel) {
+    psel.innerHTML = `<option value="">No pipeline</option>` +
+      State.pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    onTemplatePipelineChange('');
+  }
+}
+
+function onTemplatePipelineChange(pipelineId) {
+  const stageSel = document.getElementById('tmf-stage');
+  if (!stageSel) return;
+  if (!pipelineId) { stageSel.innerHTML = '<option value="">—</option>'; return; }
+  stageSel.innerHTML = State.getStages(pipelineId)
+    .map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+
+function addTemplateChecklistItem() {
+  const inp  = document.getElementById('tmf-subtask-inp');
+  const text = inp?.value?.trim();
+  if (!text) return;
+  inp.value = '';
+  _tmfSubtasks.push(text);
+  _renderTemplatChecklist();
+  inp.focus();
+}
+
+function _addTemplateChecklistRow(text) {
+  _tmfSubtasks.push(text);
+  _renderTemplatChecklist();
+}
+
+function removeTemplateChecklistItem(idx) {
+  _tmfSubtasks.splice(idx, 1);
+  _renderTemplatChecklist();
+}
+
+function _renderTemplatChecklist() {
+  const el = document.getElementById('tmf-subtask-list');
+  if (!el) return;
+  el.innerHTML = _tmfSubtasks.map((text, i) => `
+    <div style="display:flex;align-items:center;gap:7px;background:var(--bg);
+      border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px">
+      <i class="ti ti-check" style="font-size:11px;color:var(--accent)"></i>
+      <span style="flex:1;font-size:12.5px;color:var(--ink)">${esc(text)}</span>
+      <button type="button" class="subtask-del" style="opacity:1" onclick="removeTemplateChecklistItem(${i})">
+        <i class="ti ti-x"></i>
+      </button>
+    </div>`).join('');
 }
 
 /* ═══════════════════════════════════════════════════════════
