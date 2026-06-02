@@ -182,9 +182,30 @@ async function loginAs(userId) {
 
   showPage('dashboard');
   setTimeout(updateChatBadge, 500);
+  _startClock();
+}
+
+let _clockTimer = null;
+
+function _startClock() {
+  const el = document.getElementById('live-clock');
+  if (!el) return;
+  el.style.display = '';
+  const tick = () => {
+    const now  = new Date();
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const mons = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const hh   = String(now.getHours()).padStart(2,'0');
+    const mm   = String(now.getMinutes()).padStart(2,'0');
+    el.textContent = `${days[now.getDay()]} ${now.getDate()} ${mons[now.getMonth()]} ${now.getFullYear()}  ${hh}:${mm}`;
+  };
+  tick();
+  _clockTimer = setInterval(tick, 60000);
 }
 
 function logout() {
+  if (_clockTimer) { clearInterval(_clockTimer); _clockTimer = null; }
+  document.getElementById('live-clock').style.display = 'none';
   closeChat();
   State.user     = null;
   selectedUserId = null;

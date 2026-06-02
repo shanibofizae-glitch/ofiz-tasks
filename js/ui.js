@@ -448,9 +448,17 @@ function renderClients() {
   const el     = document.getElementById('client-grid');
   if (!el) return;
   const health = State.clientHealth();
-  el.innerHTML = health.map(c => `
+  el.innerHTML = health.map(c => {
+    const hs  = State.clientHealthScore(c.id);
+    const vat = State.vatNextDue(c.id);
+    const today = new Date().toISOString().slice(0,10);
+    const vatSoon = vat && vat <= new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+    return `
     <div class="client-card" onclick="openClientProfile('${c.id}')">
-      <div class="client-initial" style="background:${c.bg};color:${c.color}">${c.short}</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+        <div class="client-initial" style="background:${c.bg};color:${c.color};margin-bottom:0">${c.short}</div>
+        <div class="health-badge" style="background:${hs.bg};color:${hs.color}" title="${hs.label}">${hs.score}</div>
+      </div>
       <div class="client-name">${c.name}</div>
       <div class="client-stats">
         <span>${c.total} task${c.total !== 1 ? 's' : ''} total</span>
@@ -466,7 +474,13 @@ function renderClients() {
                style="width:${c.pct}%;background:${c.overdue ? 'var(--amber)' : 'var(--accent)'}"></div>
         </div>
       </div>
-    </div>`).join('');
+      ${vat ? `<div style="margin-top:8px;font-size:10.5px;color:${vatSoon?'var(--amber)':'var(--ink-3)'};
+        display:flex;align-items:center;gap:4px">
+        <i class="ti ti-receipt" style="font-size:11px"></i>
+        VAT due ${fmtDate(vat)}
+      </div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 function filterByClient(clientId) {
@@ -2850,14 +2864,51 @@ async function saveAsTemplate(taskId) {
 let _clientProfileId   = null;
 let _clientProfileEdit = false;
 
+let _clientActiveTab = 'overview';
+
 function openClientProfile(clientId) {
   _clientProfileId   = clientId;
   _clientProfileEdit = false;
+  _clientActiveTab   = 'overview';
   const c = State.getClient(clientId);
   if (!c) return;
+
+  /* Header */
   document.getElementById('cp-modal-title').textContent = c.name;
-  _renderClientProfileView(clientId);
+  document.getElementById('cp-modal-sub').textContent   = c.short + ' · ' + (c.classification || 'Mainland');
+  const av = document.getElementById('cp-modal-avatar');
+  av.style.background = c.bg; av.style.color = c.color; av.textContent = c.short;
+
+  /* Reset tabs */
+  document.querySelectorAll('.cp-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'overview'));
+
+  /* Admin-only edit button */
+  const editBtn = document.getElementById('cp-edit-btn');
+  if (editBtn) editBtn.style.display = State.user?.role === 'admin' ? '' : 'none';
+
+  _renderClientTab(clientId, 'overview');
   document.getElementById('client-profile-modal').classList.add('open');
+}
+
+function switchClientTab(tab, el) {
+  _clientActiveTab   = tab;
+  _clientProfileEdit = false;
+  document.querySelectorAll('.cp-tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const editBtn = document.getElementById('cp-edit-btn');
+  if (editBtn) {
+    editBtn.innerHTML = '<i class="ti ti-edit"></i> Edit';
+    editBtn.style.display = (tab === 'overview' && State.user?.role === 'admin') ? '' : 'none';
+  }
+  _renderClientTab(_clientProfileId, tab);
+}
+
+function _renderClientTab(clientId, tab) {
+  if (tab === 'overview')   _renderCPOverview(clientId);
+  else if (tab === 'notes') _renderCPNotes(clientId);
+  else if (tab === 'tasks') _renderCPTasks(clientId);
+  else if (tab === 'documents') _renderCPDocuments(clientId);
+  else if (tab === 'time')  _renderCPTime(clientId);
 }
 
 function closeClientProfile() {
@@ -2878,13 +2929,15 @@ function toggleClientProfileEdit() {
   }
 }
 
-function _renderClientProfileView(clientId) {
-  const c     = State.getClient(clientId);
-  const h     = State.clientHealth().find(x => x.id === clientId) || { total:0, done:0, overdue:0, pct:0 };
-  const today = new Date().toISOString().slice(0,10);
-  const totalHours = State.timeLogs
-    .filter(l => l.taskId && State.getTask(l.taskId)?.clientId === clientId)
-    .reduce((s,l) => s + l.hours, 0);
+function _renderClientProfileView(clientId) { _renderCPOverview(clientId); } /* compat alias */
+
+function _renderCPOverview(clientId) {
+  const c        = State.getClient(clientId);
+  const h        = State.clientHealth().find(x => x.id === clientId) || { total:0, done:0, overdue:0, pct:0 };
+  const hs       = State.clientHealthScore(clientId);
+  const hrs      = State.clientBillableHours(clientId);
+  const vat      = State.vatNextDue(clientId);
+  const today    = new Date().toISOString().slice(0,10);
   const assignee = State.getUser(c.assignedAccountantId);
   const docs     = State.getClientDocs(clientId);
   const expDocs  = docs.filter(d => d.expiryDate <= new Date(Date.now()+30*86400000).toISOString().slice(0,10));
@@ -2918,6 +2971,25 @@ function _renderClientProfileView(clientId) {
       </div>` : ''}
     </div>
 
+    <!-- Health score -->
+    <div class="cp-section">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+        <div style="width:52px;height:52px;border-radius:50%;background:${hs.bg};
+          display:flex;align-items:center;justify-content:center;
+          font-size:24px;font-weight:800;font-family:var(--mono);color:${hs.color};flex-shrink:0">
+          ${hs.score}
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:${hs.color}">${hs.label}</div>
+          <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">${hs.pct}% tasks completed · ${hs.overdue} overdue${hs.expired?' · '+hs.expired+' expired doc(s)':''}</div>
+        </div>
+        ${vat ? `<div style="margin-left:auto;text-align:right;flex-shrink:0">
+          <div style="font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">VAT due</div>
+          <div style="font-size:13px;font-family:var(--mono);color:${vat<=new Date(Date.now()+14*86400000).toISOString().slice(0,10)?'var(--red)':'var(--ink)'};font-weight:600">${fmtDate(vat)}</div>
+        </div>` : ''}
+      </div>
+    </div>
+
     <!-- Stats row -->
     <div class="cp-section">
       <div class="cp-stat-row">
@@ -2934,8 +3006,11 @@ function _renderClientProfileView(clientId) {
           <div class="cp-stat-lbl">Overdue</div>
         </div>
         <div class="cp-stat">
-          <div class="cp-stat-val">${totalHours.toFixed(1)}h</div>
-          <div class="cp-stat-lbl">Hours logged</div>
+          <div style="cp-stat-val" style="font-size:14px;font-weight:600;font-family:var(--mono)">
+            ${hrs.thisMonth.toFixed(1)}h
+            ${hrs.lastMonth > 0 ? `<span style="font-size:10px;color:var(--ink-3);font-weight:400;display:block">vs ${hrs.lastMonth.toFixed(1)}h last month</span>` : ''}
+          </div>
+          <div class="cp-stat-lbl">Hours this month</div>
         </div>
         <div class="cp-stat">
           <div class="cp-stat-val">${docs.length}</div>
@@ -3110,9 +3185,146 @@ async function saveClientProfile(clientId) {
   toast('Client profile saved!');
   _clientProfileEdit = false;
   document.getElementById('cp-edit-btn').innerHTML = '<i class="ti ti-edit"></i> Edit';
-  _renderClientProfileView(clientId);
+  _renderCPOverview(clientId);
   renderClients();
   renderSettingsClients();
+}
+
+/* ── Client profile tab renderers ───────────────────────── */
+function _renderCPNotes(clientId) {
+  const el    = document.getElementById('cp-body');
+  const notes = State.getClientNotes(clientId);
+  const isAdmin = State.user?.role !== 'viewer';
+  el.innerHTML = `
+  <div class="cp-tab-content">
+    ${isAdmin ? `
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <textarea id="cn-inp" class="form-textarea" rows="2"
+        placeholder="Add a note — meeting summary, instructions, important info…"
+        style="height:72px;font-size:13px;flex:1"></textarea>
+      <button class="btn btn-primary btn-sm" style="align-self:flex-end"
+        onclick="addClientNoteItem('${clientId}')">
+        <i class="ti ti-plus"></i> Add
+      </button>
+    </div>` : ''}
+    ${notes.length ? `
+    <div class="cn-list">
+      ${notes.map(n => {
+        const u = State.getUser(n.userId);
+        return `<div class="cn-item">
+          <div class="cn-meta">
+            <strong>${u?.name||'?'}</strong> · ${n.createdAt}
+            ${isAdmin ? `<button style="float:right;background:none;border:none;cursor:pointer;
+              color:var(--ink-4);font-size:12px" onclick="deleteClientNoteItem('${n.id}','${clientId}')">
+              <i class="ti ti-trash"></i>
+            </button>` : ''}
+          </div>
+          <div class="cn-text">${esc(n.text)}</div>
+        </div>`;
+      }).join('')}
+    </div>` : `<div class="empty-state"><i class="ti ti-notes"></i><p>No notes yet</p></div>`}
+  </div>`;
+}
+
+async function addClientNoteItem(clientId) {
+  const inp  = document.getElementById('cn-inp');
+  const text = inp?.value?.trim();
+  if (!text) return;
+  inp.value = '';
+  await State.addClientNote(clientId, text);
+  _renderCPNotes(clientId);
+  toast('Note added');
+}
+
+async function deleteClientNoteItem(noteId, clientId) {
+  if (!confirm('Delete this note?')) return;
+  await State.deleteClientNote(noteId);
+  _renderCPNotes(clientId);
+}
+
+function _renderCPTasks(clientId) {
+  const el    = document.getElementById('cp-body');
+  const today = new Date().toISOString().slice(0,10);
+  const tasks = State.tasks
+    .filter(t => t.clientId === clientId)
+    .sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+  el.innerHTML = `<div class="cp-tab-content">
+    ${tasks.length
+      ? `<div class="task-list">${tasks.map(renderTaskCard).join('')}</div>`
+      : `<div class="empty-state"><i class="ti ti-clipboard-list"></i><p>No tasks for this client</p></div>`}
+  </div>`;
+}
+
+function _renderCPDocuments(clientId) {
+  const el   = document.getElementById('cp-body');
+  const docs = State.getClientDocs(clientId);
+  const today = new Date().toISOString().slice(0,10);
+  const soon  = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  el.innerHTML = `<div class="cp-tab-content">
+    ${State.user?.role === 'admin' ? `
+    <div style="margin-bottom:14px;display:flex;justify-content:flex-end">
+      <button class="btn btn-primary btn-sm" onclick="openAddDocumentModal();
+        setTimeout(()=>document.getElementById('df-client').value='${clientId}',50)">
+        <i class="ti ti-plus"></i> Add document
+      </button>
+    </div>` : ''}
+    ${docs.length ? docs.map(d => {
+      const expired  = d.expiryDate < today;
+      const expiring = !expired && d.expiryDate <= soon;
+      const daysLeft = Math.ceil((new Date(d.expiryDate) - new Date(today)) / 86400000);
+      return `<div class="doc-card ${expired?'expired':expiring?'expiring':''}" style="margin-bottom:6px">
+        <div class="doc-info">
+          <div class="doc-type">${esc(d.type)} ${d.number?`<span style="font-weight:400;color:var(--ink-3)">#${esc(d.number)}</span>`:''}</div>
+          <div class="doc-meta">Expires ${fmtDate(d.expiryDate)}</div>
+        </div>
+        <span class="doc-expiry-badge" style="${expired?'background:var(--red-light);color:var(--red)':expiring?'background:var(--amber-light);color:var(--amber)':'background:var(--green-light);color:var(--green)'}">
+          ${expired?'Expired':daysLeft+'d left'}
+        </span>
+      </div>`;
+    }).join('')
+    : `<div class="empty-state"><i class="ti ti-file-certificate"></i><p>No documents added yet</p></div>`}
+  </div>`;
+}
+
+function _renderCPTime(clientId) {
+  const el   = document.getElementById('cp-body');
+  const hrs  = State.clientBillableHours(clientId);
+  const logs = State.timeLogs.filter(l => {
+    const task = State.getTask(l.taskId);
+    return task?.clientId === clientId;
+  }).sort((a,b) => b.date.localeCompare(a.date));
+
+  el.innerHTML = `<div class="cp-tab-content">
+    <div style="display:flex;gap:10px;margin-bottom:16px">
+      <div class="cp-stat" style="flex:1;border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center">
+        <div class="cp-stat-val">${hrs.thisMonth.toFixed(1)}h</div>
+        <div class="cp-stat-lbl">This month</div>
+      </div>
+      <div class="cp-stat" style="flex:1;border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center">
+        <div class="cp-stat-val">${hrs.lastMonth.toFixed(1)}h</div>
+        <div class="cp-stat-lbl">Last month</div>
+      </div>
+      <div class="cp-stat" style="flex:1;border:1px solid var(--border);border-radius:var(--radius);padding:12px;text-align:center">
+        <div class="cp-stat-val">${hrs.total.toFixed(1)}h</div>
+        <div class="cp-stat-lbl">Total</div>
+      </div>
+    </div>
+    ${logs.length ? `
+    <div class="timelog-list">
+      ${logs.map(l => {
+        const u    = State.getUser(l.userId);
+        const task = State.getTask(l.taskId);
+        return `<div class="timelog-item">
+          <span class="timelog-hours">${l.hours.toFixed(1)}h</span>
+          <div class="timelog-desc">
+            ${esc(task?.title||'?')}
+            ${l.description ? `<div style="font-size:11px;color:var(--ink-3)">${esc(l.description)}</div>` : ''}
+          </div>
+          <span class="timelog-meta">${u?.initials||'?'} · ${fmtDate(l.date)}</span>
+        </div>`;
+      }).join('')}
+    </div>` : `<div class="empty-state"><i class="ti ti-clock"></i><p>No time logged yet</p></div>`}
+  </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════════

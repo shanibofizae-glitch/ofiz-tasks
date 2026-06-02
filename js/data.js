@@ -305,6 +305,25 @@ const Sheets = {
       row:[doc.id, doc.clientId, doc.type, doc.number, doc.expiryDate, doc.notes||''] }));
   },
 
+  /* Client notes */
+  async loadClientNotes() {
+    const rows = await this._get('ClientNotes!A2:E');
+    if (!rows || !rows.length) return [];
+    return rows.filter(r => r[0]).map(r => ({
+      id:r[0]||'', clientId:r[1]||'', userId:r[2]||'', text:r[3]||'', createdAt:r[4]||''
+    }));
+  },
+  async addClientNote(note) {
+    return !!(await this._post({ action:'append', tab:'ClientNotes',
+      row:[note.id, note.clientId, note.userId, note.text, note.createdAt] }));
+  },
+  async deleteClientNote(id) {
+    const rowNum = await this.findRow('ClientNotes', id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'ClientNotes', rowNum,
+      row:['','','','',''] }));
+  },
+
   /* Messages */
   async loadMessages() {
     const rows = await this._get('Messages!A2:E');
@@ -536,6 +555,7 @@ const State = {
   savedViews:  [],
   timeLogs:    [],
   messages:    [],
+  clientNotes: [],
   nextId:      Math.floor(Date.now() / 1000),
   useSheets:   true,
 
@@ -571,7 +591,7 @@ const State = {
       const [sheetTasks, sheetComments, sheetClients, sheetUsers,
              sheetPipelines, sheetStages, sheetTemplates,
              sheetActivity, sheetDocs, sheetViews, sheetTimeLogs,
-             sheetMessages] = await Promise.all([
+             sheetMessages, sheetClientNotes] = await Promise.all([
         Sheets.loadTasks(),
         Sheets.loadComments(),
         Sheets.loadClients(),
@@ -584,6 +604,7 @@ const State = {
         Sheets.loadSavedViews(),
         Sheets.loadTimeLogs(),
         Sheets.loadMessages(),
+        Sheets.loadClientNotes(),
       ]);
       if (sheetTasks.length > 0) {
         /* Deduplicate by ID — first occurrence wins (original task) */
@@ -649,6 +670,9 @@ const State = {
       }
       if (sheetMessages) {
         this.messages = sheetMessages;
+      }
+      if (sheetClientNotes && sheetClientNotes.length > 0) {
+        this.clientNotes = sheetClientNotes;
       }
     } catch(e) {
       console.error('[State.loadFromSheets] Failed:', e);
@@ -1077,6 +1101,98 @@ State.deleteDocument = async function(id) {
 
 State.getClientDocs = function(clientId) {
   return this.documents.filter(d => d.clientId === clientId);
+};
+
+/* ─── Client Notes ──────────────────────────────────────── */
+State.getClientNotes = function(clientId) {
+  return this.clientNotes
+    .filter(n => n.clientId === clientId)
+    .sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+};
+
+State.addClientNote = async function(clientId, text) {
+  const note = {
+    id:        'cn' + Date.now(),
+    clientId,
+    userId:    this.user?.id || '',
+    text,
+    createdAt: new Date().toLocaleString('en-GB', {
+      day:'2-digit', month:'short', year:'numeric',
+      hour:'2-digit', minute:'2-digit',
+    }),
+  };
+  this.clientNotes.push(note);
+  if (this.useSheets) Sheets.addClientNote(note);
+  return note;
+};
+
+State.deleteClientNote = async function(id) {
+  this.clientNotes = this.clientNotes.filter(n => n.id !== id);
+  if (this.useSheets) Sheets.deleteClientNote(id);
+};
+
+/* ─── Client Health Score ───────────────────────────────── */
+State.clientHealthScore = function(clientId) {
+  const today    = new Date().toISOString().slice(0,10);
+  const soon     = new Date(Date.now() + 14*86400000).toISOString().slice(0,10);
+  const tasks    = this.tasks.filter(t => t.clientId === clientId);
+  const open     = tasks.filter(t => t.status !== 'done');
+  const overdue  = open.filter(t => t.dueDate && t.dueDate < today).length;
+  const total    = tasks.length;
+  const done     = tasks.filter(t => t.status === 'done').length;
+  const pct      = total ? Math.round(done / total * 100) : 100;
+  const docs     = this.getClientDocs(clientId);
+  const expired  = docs.filter(d => d.expiryDate && d.expiryDate < today).length;
+  const expiring = docs.filter(d => d.expiryDate && d.expiryDate >= today && d.expiryDate <= soon).length;
+
+  let score, label, color, bg;
+  if (expired > 0 || overdue >= 5 || pct < 30) {
+    score='D'; label='Critical';     color='var(--red)';    bg='var(--red-light)';
+  } else if (overdue >= 3 || pct < 50 || expiring > 0) {
+    score='C'; label='Needs attention'; color='var(--amber)'; bg='var(--amber-light)';
+  } else if (overdue >= 1 || pct < 75) {
+    score='B'; label='Good';         color='var(--blue)';   bg='var(--blue-light)';
+  } else {
+    score='A'; label='Excellent';    color='var(--green)';  bg='var(--green-light)';
+  }
+  return { score, label, color, bg, pct, overdue, expired, expiring };
+};
+
+/* ─── VAT Next Due Date ─────────────────────────────────── */
+State.vatNextDue = function(clientId) {
+  const c = this.getClient(clientId);
+  if (!c?.vatRegistered) return null;
+  const now = new Date();
+  const m   = now.getMonth(); // 0-11
+  const y   = now.getFullYear();
+  // UAE VAT quarters end: Mar(2), Jun(5), Sep(8), Dec(11)
+  let qEnd;
+  if      (m <= 2)  qEnd = new Date(y, 3, 0);   // Mar 31
+  else if (m <= 5)  qEnd = new Date(y, 6, 0);   // Jun 30
+  else if (m <= 8)  qEnd = new Date(y, 9, 0);   // Sep 30
+  else              qEnd = new Date(y, 12, 0);   // Dec 31
+  let due = new Date(qEnd.getTime() + 28*86400000);
+  if (due < now) {
+    qEnd = new Date(qEnd.getFullYear(), qEnd.getMonth() + 3 + 1, 0);
+    due  = new Date(qEnd.getTime() + 28*86400000);
+  }
+  return due.toISOString().slice(0,10);
+};
+
+/* ─── Client Billable Hours ─────────────────────────────── */
+State.clientBillableHours = function(clientId) {
+  const now    = new Date();
+  const thisM  = now.toISOString().slice(0,7);
+  const lastM  = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().slice(0,7);
+  const logs   = this.timeLogs.filter(l => {
+    const task = this.getTask(l.taskId);
+    return task?.clientId === clientId;
+  });
+  return {
+    thisMonth: logs.filter(l => l.date?.startsWith(thisM)).reduce((s,l)=>s+l.hours,0),
+    lastMonth: logs.filter(l => l.date?.startsWith(lastM)).reduce((s,l)=>s+l.hours,0),
+    total:     logs.reduce((s,l)=>s+l.hours,0),
+  };
 };
 
 State.expiringDocuments = function(days = 30) {

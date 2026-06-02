@@ -1757,6 +1757,69 @@ kbd {
 .cp-stat-lbl { font-size: 10px; color: var(--ink-3); margin-top: 2px; }
 
 /* ═══════════════════════════════════════════════════════════
+   CLIENT INTELLIGENCE — PHASE 2
+   ═══════════════════════════════════════════════════════════ */
+
+/* Health score badge on client cards */
+.health-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  font-size: 11px; font-weight: 800; font-family: var(--mono);
+  flex-shrink: 0;
+}
+
+/* Client profile tabs */
+.cp-tabs {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 22px;
+  background: var(--bg-sidebar);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.cp-tab {
+  padding: 10px 16px;
+  font-size: 12.5px; font-weight: 500;
+  color: var(--ink-3);
+  background: none; border: none;
+  cursor: pointer; font-family: var(--font);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all var(--dur);
+  white-space: nowrap;
+}
+.cp-tab:hover { color: var(--ink-2); }
+.cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* Tab content area */
+.cp-tab-content { padding: 20px 22px; overflow-y: auto; max-height: 55vh; }
+
+/* Client notes */
+.cn-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.cn-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+}
+.cn-meta { font-size: 10.5px; color: var(--ink-3); margin-bottom: 5px; font-family: var(--mono); }
+.cn-text { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+
+/* Health score detail */
+.hs-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px;
+}
+.hs-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  text-align: center;
+}
+.hs-val { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+.hs-lbl { font-size: 10px; color: var(--ink-3); margin-top: 2px; }
+
+/* ═══════════════════════════════════════════════════════════
    CHAT PANEL
    ═══════════════════════════════════════════════════════════ */
 .chat-panel {

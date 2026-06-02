@@ -150,6 +150,8 @@
           <i class="ti ti-search"></i>
           <input type="text" placeholder="Search tasks…" oninput="handleSearch(this.value)">
         </div>
+        <div id="live-clock" style="font-family:var(--mono);font-size:12px;color:var(--ink-3);
+          white-space:nowrap;padding:0 6px;display:none"></div>
         <button class="btn btn-ghost btn-sm" onclick="toggleChat()" id="chat-toggle-btn" title="Team chat" style="position:relative">
           <i class="ti ti-message-circle"></i>
           <span id="chat-badge" style="display:none;position:absolute;top:-4px;right:-4px;
@@ -868,17 +870,33 @@
 
 <!-- CLIENT PROFILE MODAL -->
 <div class="modal-overlay" id="client-profile-modal" onclick="if(event.target===this)closeClientProfile()">
-  <div class="modal" style="max-width:660px">
+  <div class="modal" style="max-width:680px">
     <div class="modal-head">
-      <div class="modal-title" id="cp-modal-title">Client Profile</div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <div id="cp-modal-avatar" style="width:32px;height:32px;border-radius:var(--radius-sm);
+          display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+          font-size:11px;font-weight:700;flex-shrink:0"></div>
+        <div style="min-width:0">
+          <div class="modal-title" id="cp-modal-title" style="font-family:var(--font);font-style:normal;font-size:14px;font-weight:600"></div>
+          <div id="cp-modal-sub" style="font-size:11px;color:var(--ink-3);margin-top:1px"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
         <button class="btn btn-ghost btn-sm" id="cp-edit-btn" data-admin-only onclick="toggleClientProfileEdit()">
           <i class="ti ti-edit"></i> Edit
         </button>
         <button class="btn btn-ghost btn-sm" onclick="closeClientProfile()"><i class="ti ti-x"></i></button>
       </div>
     </div>
-    <div class="modal-body" id="cp-body" style="padding:0"></div>
+    <!-- Tab nav -->
+    <div class="cp-tabs" id="cp-tabs">
+      <button class="cp-tab active" data-tab="overview" onclick="switchClientTab('overview',this)">Overview</button>
+      <button class="cp-tab" data-tab="notes"    onclick="switchClientTab('notes',this)">Notes</button>
+      <button class="cp-tab" data-tab="tasks"    onclick="switchClientTab('tasks',this)">Tasks</button>
+      <button class="cp-tab" data-tab="documents" onclick="switchClientTab('documents',this)">Documents</button>
+      <button class="cp-tab" data-tab="time"     onclick="switchClientTab('time',this)">Time log</button>
+    </div>
+    <div id="cp-body" style="padding:0;overflow-y:auto;max-height:65vh"></div>
   </div>
 </div>
 
