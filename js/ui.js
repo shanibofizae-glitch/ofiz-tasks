@@ -1471,7 +1471,15 @@ function handleSearch(val) {
 
 function renderPipelinesPage() {
   renderPipelineTabs();
-  renderKanbanBoard(State.activePipelineId);
+  /* Populate client filter */
+  const cf = document.getElementById('kb-client-filter');
+  if (cf) {
+    cf.innerHTML = `<option value="">All clients</option>` +
+      State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  }
+  if (_kbView === 'table')     renderKanbanTable();
+  else if (_kbView === 'analytics') renderKanbanAnalytics();
+  else renderKanbanBoard(State.activePipelineId);
 }
 
 function renderPipelineTabs() {
@@ -1554,41 +1562,73 @@ function renderKanbanBoard(pipelineId) {
     return;
   }
 
-  const stages = State.getStages(pipelineId);
-  const pipeTasks = State.getPipeTasks(pipelineId);
-  const today = new Date().toISOString().slice(0,10);
-  const canEdit = State.user?.role !== 'viewer';
+  const stages      = State.getStages(pipelineId);
+  const today       = new Date().toISOString().slice(0,10);
+  const canEdit     = State.user?.role !== 'viewer';
+  const clientFilter = document.getElementById('kb-client-filter')?.value || '';
+  const swimLane    = document.getElementById('kb-swim-lane')?.value || '';
+  let   pipeTasks   = State.getPipeTasks(pipelineId);
+  if (clientFilter) pipeTasks = pipeTasks.filter(t => t.clientId === clientFilter);
 
   if (!stages.length) {
-    wrap.innerHTML = `<div class="pipeline-empty"><i class="ti ti-columns"></i><p>No stages defined for this pipeline.</p></div>`;
+    wrap.innerHTML = `<div class="pipeline-empty"><i class="ti ti-columns"></i><p>No stages defined.</p></div>`;
     return;
   }
 
   wrap.innerHTML = `<div class="kanban-board">${stages.map((stage, idx) => {
-    const cards   = pipeTasks.filter(t => t.pipelineStageId === stage.id);
-    const isLast  = idx === stages.length - 1;
+    const allCards = pipeTasks.filter(t => t.pipelineStageId === stage.id);
     const colStyle = stage.color ? `border-top:2px solid ${stage.color}` : '';
-
-    const dotHtml = canEdit
+    const dotHtml  = canEdit
       ? `<span class="stage-color-dot ${stage.color ? '' : 'empty'}"
            style="${stage.color ? `background:${stage.color}` : ''}"
-           onclick="openStageColorPicker('${stage.id}', this)"
-           title="Change stage colour"></span>`
+           onclick="openStageColorPicker('${stage.id}', this)" title="Change colour"></span>`
       : (stage.color ? `<span class="stage-color-dot" style="background:${stage.color}"></span>` : '');
+    const slaHtml = stage.targetDays
+      ? `<span style="font-size:9.5px;color:var(--ink-4);font-family:var(--mono);margin-left:2px">${stage.targetDays}d</span>`
+      : '';
+
+    /* Render cards with optional swim lanes */
+    let cardsHtml = '';
+    if (swimLane === 'client') {
+      const groups = {};
+      allCards.forEach(t => { (groups[t.clientId] = groups[t.clientId]||[]).push(t); });
+      cardsHtml = Object.keys(groups).map(cid => {
+        const c = State.getClient(cid);
+        return `<div class="kb-swim-head" style="border-left:2px solid ${c?.color||'var(--border)'}">
+          <span style="color:${c?.color||'var(--ink-3)'}">${c?.short||'?'}</span> ${c?.name||''}
+        </div>
+        ${groups[cid].map(t => renderKanbanCard(t, stage, stages, today, canEdit)).join('')}`;
+      }).join('');
+    } else if (swimLane === 'assignee') {
+      const groups = {};
+      allCards.forEach(t => { (groups[t.assigneeId] = groups[t.assigneeId]||[]).push(t); });
+      cardsHtml = Object.keys(groups).map(uid => {
+        const u = State.getUser(uid);
+        return `<div class="kb-swim-head">
+          <div class="avatar ${u?.avClass||'av-admin'}" style="width:16px;height:16px;font-size:7px">${u?.initials||'?'}</div>
+          ${u?.name||'?'}
+        </div>
+        ${groups[uid].map(t => renderKanbanCard(t, stage, stages, today, canEdit)).join('')}`;
+      }).join('');
+    } else {
+      cardsHtml = allCards.length
+        ? allCards.map(t => renderKanbanCard(t, stage, stages, today, canEdit)).join('')
+        : `<div class="kanban-empty-col">Drop a card here</div>`;
+    }
 
     return `
     <div class="kanban-col" style="${colStyle}">
       <div class="kanban-col-head">
         ${dotHtml}
         <span class="kanban-col-title">${stage.name}</span>
-        <span class="kanban-col-count">${cards.length}</span>
+        ${slaHtml}
+        <span class="kanban-col-count" style="margin-left:auto">${allCards.length}</span>
       </div>
       <div class="kanban-col-body"
            ondragover="kanbanDragOver(event)"
            ondragleave="kanbanDragLeave(event)"
            ondrop="kanbanDrop(event,'${stage.id}')">
-        ${cards.length ? cards.map(task => renderKanbanCard(task, stage, stages, today, canEdit)).join('') : `
-          <div class="kanban-empty-col">Drop a card here</div>`}
+        ${cardsHtml}
       </div>
       ${canEdit ? `<button class="kanban-add-card" onclick="openPipeTaskModal('${pipelineId}','${stage.id}')">
         <i class="ti ti-plus"></i> Add task
@@ -1598,36 +1638,79 @@ function renderKanbanBoard(pipelineId) {
 }
 
 function renderKanbanCard(task, currentStage, allStages, today, canEdit) {
-  const over   = task.status !== 'done' && task.dueDate < today;
-  const done   = task.status === 'done';
-  const client = State.getClient(task.clientId);
-  const user   = State.getUser(task.assigneeId);
-  const stageIdx = allStages.findIndex(s => s.id === currentStage.id);
+  const over      = task.status !== 'done' && task.dueDate < today;
+  const done      = task.status === 'done';
+  const client    = State.getClient(task.clientId);
+  const user      = State.getUser(task.assigneeId);
+  const stageIdx  = allStages.findIndex(s => s.id === currentStage.id);
   const prevStage = allStages[stageIdx - 1];
   const nextStage = allStages[stageIdx + 1];
 
+  /* Card aging */
+  let ageBadge = '';
+  if (!done && task.stageEnteredAt) {
+    const days = Math.floor((new Date(today) - new Date(task.stageEnteredAt)) / 86400000);
+    const td   = currentStage.targetDays || 0;
+    let ageCls = 'background:var(--bg-active);color:var(--ink-3)';
+    if (td && days > td * 2)       ageCls = 'background:var(--red-light);color:var(--red)';
+    else if (td && days > td * 1.5) ageCls = 'background:var(--amber-light);color:var(--amber)';
+    ageBadge = `<span class="kb-age-badge" style="${ageCls}" title="${days} day${days!==1?'s':''} in this stage">
+      <i class="ti ti-clock" style="font-size:9px"></i> ${days}d
+    </span>`;
+  }
+
+  /* Stage gate check */
+  const subtasks  = task.subtasks || [];
+  const gated     = subtasks.length > 0 && subtasks.some(s => !s.done);
+  const stGateHtml = (gated && nextStage && canEdit)
+    ? `<span class="kb-gate-lock"><i class="ti ti-lock" style="font-size:10px"></i> ${subtasks.filter(s=>!s.done).length} remaining</span>`
+    : '';
+
+  /* Bulk select */
+  const isSelected = _kbSelected.has(task.id);
+  const selectHtml = _kbBulkMode
+    ? `<div class="kb-card-select ${isSelected ? 'checked' : ''}"
+         onclick="event.stopPropagation();toggleKanbanCardSelect('${task.id}')">
+         <i class="ti ti-check" style="font-size:9px"></i>
+       </div>` : '';
+
+  /* Subtask progress mini bar */
+  const stTotal = subtasks.length;
+  const stDone  = subtasks.filter(s => s.done).length;
+  const stBar   = stTotal > 0 ? `
+    <div style="height:2px;background:var(--border);border-radius:2px;margin-top:7px;overflow:hidden">
+      <div style="height:100%;width:${Math.round(stDone/stTotal*100)}%;background:${stDone===stTotal?'var(--accent)':'var(--amber)'};border-radius:2px"></div>
+    </div>` : '';
+
   return `
-  <div class="kanban-card ${over ? 'overdue' : ''} ${done ? 'done' : ''}"
-       onclick="openTaskModal('${task.id}')"
-       draggable="true"
+  <div class="kanban-card ${over?'overdue':''} ${done?'done':''} ${isSelected?'kb-selected':''}"
+       onclick="${_kbBulkMode ? `toggleKanbanCardSelect('${task.id}')` : `openTaskModal('${task.id}')`}"
+       draggable="${!_kbBulkMode}"
        ondragstart="kanbanDragStart(event,'${task.id}')"
        ondragend="kanbanDragEnd(event)">
-    <div class="kanban-card-title">${task.title}</div>
+    <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+      ${selectHtml}
+      <div class="kanban-card-title" style="flex:1">${esc(task.title)}</div>
+    </div>
     <div class="kanban-card-meta">
       ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
       ${priorityTag(task.priority)}
       ${over ? `<span class="tag tag-overdue">Overdue</span>` : ''}
+      ${ageBadge}
     </div>
-    <div class="kanban-card-foot">
-      <span class="kanban-due ${over ? 'late' : ''}">${fmtDate(task.dueDate)}</span>
+    ${stBar}
+    <div class="kanban-card-foot" style="margin-top:7px">
+      <span class="kanban-due ${over?'late':''}">${fmtDate(task.dueDate)}</span>
       ${user ? `<div class="assign-chip ${user.avClass}" title="${user.name}">${user.initials}</div>` : ''}
     </div>
-    ${canEdit && !done ? `
+    ${stGateHtml ? `<div style="margin-top:6px">${stGateHtml}</div>` : ''}
+    ${canEdit && !done && !_kbBulkMode ? `
     <div style="display:flex;gap:5px;margin-top:8px;border-top:1px solid var(--border);padding-top:7px">
       ${prevStage ? `<button class="stage-move-btn" onclick="event.stopPropagation();moveCard('${task.id}','${prevStage.id}')">
         <i class="ti ti-arrow-left" style="font-size:11px"></i> ${prevStage.name}
       </button>` : ''}
-      ${nextStage ? `<button class="stage-move-btn" style="margin-left:auto" onclick="event.stopPropagation();moveCard('${task.id}','${nextStage.id}')">
+      ${nextStage ? `<button class="stage-move-btn" style="margin-left:auto"
+        onclick="event.stopPropagation();${gated?`confirmGatedMove('${task.id}','${nextStage.id}')`:``}${!gated?`moveCard('${task.id}','${nextStage.id}')`:``}">
         ${nextStage.name} <i class="ti ti-arrow-right" style="font-size:11px"></i>
       </button>` : `<span style="margin-left:auto;font-size:11px;color:var(--green);font-weight:500">
         <i class="ti ti-check" style="font-size:11px"></i> Final stage
@@ -1639,6 +1722,253 @@ function renderKanbanCard(task, currentStage, allStages, today, canEdit) {
 async function moveCard(taskId, stageId) {
   await State.moveTaskStage(taskId, stageId);
   toast('Task moved!');
+  renderKanbanBoard(State.activePipelineId);
+}
+
+async function confirmGatedMove(taskId, stageId) {
+  const task = State.getTask(taskId);
+  const remaining = (task?.subtasks||[]).filter(s=>!s.done).length;
+  if (confirm(`${remaining} checklist item${remaining!==1?'s':''} still incomplete. Move anyway?`)) {
+    await moveCard(taskId, stageId);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   KANBAN VIEW SWITCHING
+   ═══════════════════════════════════════════════════════════ */
+function setKanbanView(view) {
+  _kbView = view;
+  document.querySelectorAll('.kb-view-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`kb-view-${view}`)?.classList.add('active');
+  if (view === 'table')         renderKanbanTable();
+  else if (view === 'analytics') renderKanbanAnalytics();
+  else                           renderKanbanBoard(State.activePipelineId);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   KANBAN TABLE VIEW
+   ═══════════════════════════════════════════════════════════ */
+function renderKanbanTable() {
+  const wrap = document.getElementById('kanban-board-wrap');
+  if (!wrap) return;
+  const pipelineId = State.activePipelineId;
+  const today      = new Date().toISOString().slice(0,10);
+  const clientFilter = document.getElementById('kb-client-filter')?.value || '';
+
+  /* All pipeline tasks across all pipelines or current */
+  let tasks = pipelineId
+    ? State.getPipeTasks(pipelineId)
+    : State.tasks.filter(t => t.pipelineId);
+  if (clientFilter) tasks = tasks.filter(t => t.clientId === clientFilter);
+  tasks = tasks.sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+
+  if (!tasks.length) {
+    wrap.innerHTML = `<div class="pipeline-empty"><i class="ti ti-table"></i><p>No pipeline cards found</p></div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+  <div style="overflow-x:auto">
+  <table class="kb-table">
+    <thead>
+      <tr>
+        <th>Task</th><th>Client</th><th>Pipeline</th><th>Stage</th>
+        <th>Assignee</th><th>Due date</th><th>Age in stage</th><th>Priority</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tasks.map(t => {
+        const c    = State.getClient(t.clientId);
+        const u    = State.getUser(t.assigneeId);
+        const pipe = State.getPipeline(t.pipelineId);
+        const stage = State.stages.find(s => s.id === t.pipelineStageId);
+        const over  = t.status !== 'done' && t.dueDate < today;
+        const days  = t.stageEnteredAt
+          ? Math.floor((new Date(today) - new Date(t.stageEnteredAt)) / 86400000) : null;
+        const td    = stage?.targetDays || 0;
+        let ageStyle = '';
+        if (days !== null && td) {
+          if (days > td*2)       ageStyle = 'color:var(--red);font-weight:600';
+          else if (days > td*1.5) ageStyle = 'color:var(--amber);font-weight:600';
+        }
+        return `<tr>
+          <td><span class="kb-title" onclick="openTaskModal('${t.id}')">${esc(t.title)}</span></td>
+          <td>${c ? `<span class="tag tag-client" style="color:${c.color};background:${c.bg}">${c.short}</span>` : '—'}</td>
+          <td style="font-size:12px;color:var(--ink-3)">${pipe?.name||'—'}</td>
+          <td style="font-size:12px">${stage ? `<span style="display:inline-flex;align-items:center;gap:5px">${stage.color?`<span style="width:7px;height:7px;border-radius:50%;background:${stage.color}"></span>`:''} ${stage.name}</span>` : '—'}</td>
+          <td>${u ? `<div style="display:flex;align-items:center;gap:5px"><div class="assign-chip ${u.avClass}" style="width:20px;height:20px;font-size:7px">${u.initials}</div>${u.name}</div>` : '—'}</td>
+          <td style="${over?'color:var(--red);font-weight:500':''};font-family:var(--mono);font-size:12px">${fmtDate(t.dueDate)}</td>
+          <td style="font-family:var(--mono);font-size:12px;${ageStyle}">${days !== null ? days+'d' : '—'}</td>
+          <td>${priorityTag(t.priority)}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   KANBAN ANALYTICS
+   ═══════════════════════════════════════════════════════════ */
+function renderKanbanAnalytics() {
+  const wrap = document.getElementById('kanban-board-wrap');
+  if (!wrap) return;
+  const pipelineId = State.activePipelineId;
+  if (!pipelineId) { wrap.innerHTML = '<div class="pipeline-empty"><i class="ti ti-chart-bar"></i><p>Select a pipeline to view analytics</p></div>'; return; }
+
+  const stages     = State.getStages(pipelineId);
+  const pipeTasks  = State.getPipeTasks(pipelineId);
+  const today      = new Date().toISOString().slice(0,10);
+  const total      = pipeTasks.length;
+  const maxCards   = Math.max(...stages.map(s => pipeTasks.filter(t => t.pipelineStageId === s.id).length), 1);
+  const done       = pipeTasks.filter(t => t.status === 'done').length;
+  const overdue    = pipeTasks.filter(t => t.status !== 'done' && t.dueDate < today).length;
+
+  wrap.innerHTML = `
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+    ${[
+      {val:total,   lbl:'Total cards',    color:'var(--ink)'},
+      {val:done,    lbl:'Completed',      color:'var(--accent)'},
+      {val:overdue, lbl:'Overdue',        color:'var(--red)'},
+      {val:total-done-overdue, lbl:'Active (on track)', color:'var(--blue)'},
+    ].map(s => `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:${s.color}">${s.val}</div>
+      <div style="font-size:11px;color:var(--ink-3);margin-top:3px">${s.lbl}</div>
+    </div>`).join('')}
+  </div>
+
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px">
+    <div class="section-title" style="margin-bottom:16px">Cards per stage</div>
+    <div class="kb-analytics">
+      ${stages.map(stage => {
+        const cards   = pipeTasks.filter(t => t.pipelineStageId === stage.id);
+        const od      = cards.filter(t => t.dueDate < today && t.status !== 'done').length;
+        const pct     = Math.round(cards.length / maxCards * 100);
+        const avgDays = cards.filter(t=>t.stageEnteredAt).length
+          ? (cards.filter(t=>t.stageEnteredAt).reduce((s,t)=>s+Math.floor((new Date(today)-new Date(t.stageEnteredAt))/86400000),0) / cards.filter(t=>t.stageEnteredAt).length).toFixed(1)
+          : null;
+        return `<div class="kb-analytics-bar">
+          <div class="kb-analytics-stage">
+            <span style="display:flex;align-items:center;gap:6px">
+              ${stage.color?`<span style="width:8px;height:8px;border-radius:50%;background:${stage.color}"></span>`:''}
+              ${stage.name}
+              ${od ? `<span style="font-size:10px;color:var(--red);font-weight:600">${od} overdue</span>` : ''}
+            </span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--ink-3)">
+              ${cards.length} card${cards.length!==1?'s':''}
+              ${avgDays ? ` · avg ${avgDays}d` : ''}
+              ${stage.targetDays ? ` · target ${stage.targetDays}d` : ''}
+            </span>
+          </div>
+          <div class="kb-analytics-track">
+            <div class="kb-analytics-fill" style="width:${pct}%;background:${od>0?'var(--red)':stage.color||'var(--accent)'}"></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PIPELINE TEMPLATES
+   ═══════════════════════════════════════════════════════════ */
+function openPipelineTemplatesModal() {
+  const grid = document.getElementById('pipeline-templates-grid');
+  if (grid) {
+    grid.innerHTML = PIPELINE_TEMPLATES.map(tpl => `
+    <div class="pipe-tpl-card" onclick="createFromTemplate('${tpl.id}')">
+      <div class="pipe-tpl-icon" style="background:${tpl.color}22;color:${tpl.color}">
+        <i class="ti ${tpl.icon}"></i>
+      </div>
+      <div class="pipe-tpl-name">${tpl.name}</div>
+      <div class="pipe-tpl-desc">${tpl.desc}</div>
+      <div class="pipe-tpl-stages">
+        ${tpl.stages.map(s => `<span class="pipe-tpl-stage-tag">${s.name} (${s.targetDays}d)</span>`).join('')}
+      </div>
+    </div>`).join('');
+  }
+  document.getElementById('pipeline-templates-modal').classList.add('open');
+}
+
+function closePipelineTemplatesModal() {
+  document.getElementById('pipeline-templates-modal').classList.remove('open');
+}
+
+async function createFromTemplate(templateId) {
+  const tpl = PIPELINE_TEMPLATES.find(t => t.id === templateId);
+  if (!tpl) return;
+  const btn = document.querySelector(`[onclick="createFromTemplate('${templateId}')"]`);
+  if (btn) { btn.style.opacity = '0.6'; btn.style.pointerEvents = 'none'; }
+  const pipeline = await State.createPipelineFromTemplate(templateId);
+  closePipelineTemplatesModal();
+  renderPipelinesPage();
+  populateFormDropdowns();
+  toast(`Pipeline "${tpl.name}" created from template!`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   KANBAN BULK OPERATIONS
+   ═══════════════════════════════════════════════════════════ */
+function toggleKanbanBulk() {
+  _kbBulkMode = !_kbBulkMode;
+  if (!_kbBulkMode) { _kbSelected.clear(); updateKanbanBulkBar(); }
+  const btn = document.getElementById('kb-bulk-btn');
+  if (btn) {
+    btn.innerHTML = _kbBulkMode ? '<i class="ti ti-checkbox"></i> Done' : '<i class="ti ti-checkbox"></i> Select';
+    btn.style.background  = _kbBulkMode ? 'var(--ink)' : '';
+    btn.style.color       = _kbBulkMode ? 'var(--bg-sidebar)' : '';
+    btn.style.borderColor = _kbBulkMode ? 'var(--ink)' : '';
+  }
+  renderKanbanBoard(State.activePipelineId);
+}
+
+function toggleKanbanCardSelect(taskId) {
+  if (_kbSelected.has(taskId)) _kbSelected.delete(taskId);
+  else _kbSelected.add(taskId);
+  updateKanbanBulkBar();
+  renderKanbanBoard(State.activePipelineId);
+}
+
+function updateKanbanBulkBar() {
+  const bar = document.getElementById('kb-bulk-bar');
+  const cnt = _kbSelected.size;
+  if (!bar) return;
+  bar.style.display = (cnt > 0 && _kbBulkMode) ? 'flex' : 'none';
+  const lbl = document.getElementById('kb-bulk-count');
+  if (lbl) lbl.textContent = `${cnt} card${cnt!==1?'s':''} selected`;
+  /* Populate stage selector */
+  const stageSel = document.getElementById('kb-bulk-stage');
+  if (stageSel && State.activePipelineId) {
+    stageSel.innerHTML = `<option value="">Move to stage…</option>` +
+      State.getStages(State.activePipelineId)
+        .map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  }
+}
+
+function clearKanbanBulk() {
+  _kbSelected.clear();
+  _kbBulkMode = false;
+  updateKanbanBulkBar();
+  const btn = document.getElementById('kb-bulk-btn');
+  if (btn) { btn.innerHTML='<i class="ti ti-checkbox"></i> Select'; btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
+  renderKanbanBoard(State.activePipelineId);
+}
+
+async function bulkMoveCards(stageId) {
+  if (!stageId || !_kbSelected.size) return;
+  const stage = State.stages.find(s => s.id === stageId);
+  for (const id of [..._kbSelected]) await State.moveTaskStage(id, stageId);
+  toast(`${_kbSelected.size} cards moved to "${stage?.name}"`);
+  clearKanbanBulk();
+  renderKanbanBoard(State.activePipelineId);
+}
+
+async function bulkCloseCards() {
+  if (!_kbSelected.size) return;
+  if (!confirm(`Close ${_kbSelected.size} pipeline cards?`)) return;
+  for (const id of [..._kbSelected]) await State.closeTask(id, '');
+  toast(`${_kbSelected.size} cards closed`);
+  clearKanbanBulk();
   renderKanbanBoard(State.activePipelineId);
 }
 
@@ -1683,6 +2013,11 @@ let editPipelineId   = null;
 let _removedStageIds = [];
 let _dragTaskId      = null;
 
+/* ── Kanban view state ──────────────────────────────────── */
+let _kbView        = 'kanban'; /* 'kanban' | 'table' | 'analytics' */
+let _kbBulkMode    = false;
+const _kbSelected  = new Set();
+
 function openNewPipelineModal() {
   editPipelineId   = null;
   _removedStageIds = [];
@@ -1706,7 +2041,7 @@ function openEditPipelineModal(pipelineId) {
   document.getElementById('pf-name').value = p.name;
   document.getElementById('pf-desc').value = p.desc || '';
   document.getElementById('stage-list').innerHTML = '';
-  State.getStages(pipelineId).forEach(s => addStageInput(s.name, s.color, s.id));
+  State.getStages(pipelineId).forEach(s => addStageInput(s.name, s.color, s.id, s.targetDays||''));
   document.getElementById('pipeline-form-modal').classList.add('open');
   setTimeout(() => document.getElementById('pf-name').focus(), 100);
 }
@@ -1717,18 +2052,23 @@ function closePipelineModal() {
   _removedStageIds = [];
 }
 
-function addStageInput(val = '', color = '', stageId = '') {
+function addStageInput(val = '', color = '', stageId = '', targetDays = '') {
   stageCount++;
   const id  = 'stage-inp-' + stageCount;
   const iid = 'stage-item-' + stageCount;
   const item = document.createElement('div');
-  item.className       = 'stage-item';
-  item.id              = iid;
-  item.dataset.color   = color;
-  item.dataset.stageId = stageId;
+  item.className          = 'stage-item';
+  item.id                 = iid;
+  item.dataset.color      = color;
+  item.dataset.stageId    = stageId;
+  item.dataset.targetDays = targetDays;
   item.innerHTML = `
     <i class="ti ti-grip-vertical stage-item-drag" aria-hidden="true"></i>
-    <input type="text" id="${id}" placeholder="Stage name e.g. Documents collected" value="${val}">
+    <input type="text" id="${id}" placeholder="Stage name" value="${val}" style="flex:1">
+    <input type="number" id="${id}-days" placeholder="Days" min="0" value="${targetDays}"
+      style="width:58px;background:var(--bg);border:1px solid var(--border-md);border-radius:var(--radius-sm);
+        padding:6px 8px;font-size:12px;font-family:var(--mono);outline:none;color:var(--ink)"
+      oninput="document.getElementById('${iid}').dataset.targetDays=this.value" title="Target days in this stage">
     <button class="stage-color-btn ${color ? 'has-color' : ''}" type="button"
       onclick="openStageColorPickerForInput('${iid}', this)" title="Set stage colour">
       <span class="stage-color-preview" style="${color ? `background:${color}` : ''}"></span>
@@ -1755,9 +2095,10 @@ async function submitPipelineForm() {
   const stageItems = Array.from(document.querySelectorAll('#stage-list .stage-item'));
   const stageObjs  = stageItems
     .map(el => ({
-      name:    el.querySelector('input[type=text]').value.trim(),
-      color:   el.dataset.color   || '',
-      stageId: el.dataset.stageId || '',
+      name:       el.querySelector('input[type=text]').value.trim(),
+      color:      el.dataset.color      || '',
+      stageId:    el.dataset.stageId    || '',
+      targetDays: Number(el.dataset.targetDays) || 0,
     }))
     .filter(s => s.name);
   if (stageObjs.length < 2) { toast('Add at least 2 stages', 'error'); return; }
@@ -1771,9 +2112,9 @@ async function submitPipelineForm() {
     for (let i = 0; i < stageObjs.length; i++) {
       const s = stageObjs[i];
       if (s.stageId) {
-        await State.updateStageData(s.stageId, { name:s.name, color:s.color, order:i+1 });
+        await State.updateStageData(s.stageId, { name:s.name, color:s.color, order:i+1, targetDays:s.targetDays });
       } else {
-        await State.addStage(editPipelineId, s.name, s.color);
+        await State.addStage(editPipelineId, s.name, s.color, s.targetDays);
       }
     }
     State.activePipelineId = editPipelineId;
@@ -2149,6 +2490,21 @@ async function addSubtaskItem(taskId) {
 
 async function toggleSubtaskCheck(taskId, stId) {
   await State.toggleSubtask(taskId, stId);
+  /* Auto-advance: if all subtasks done and task is in a pipeline, move to next stage */
+  const task = State.getTask(taskId);
+  if (task?.pipelineId && task?.pipelineStageId) {
+    const subtasks = task.subtasks || [];
+    if (subtasks.length > 0 && subtasks.every(s => s.done)) {
+      const stages   = State.getStages(task.pipelineId);
+      const idx      = stages.findIndex(s => s.id === task.pipelineStageId);
+      const next     = stages[idx + 1];
+      if (next) {
+        await State.moveTaskStage(task.id, next.id);
+        toast(`✓ All done — card advanced to "${next.name}"!`);
+        renderKanbanBoard(State.activePipelineId);
+      }
+    }
+  }
   openTaskModal(taskId);
 }
 

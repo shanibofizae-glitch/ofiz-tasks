@@ -404,12 +404,67 @@
 
       <!-- PIPELINES -->
       <div id="page-pipelines" class="page">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <!-- Pipeline tabs + actions -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px;flex-wrap:wrap">
           <div class="pipeline-tabs" id="pipeline-tabs" style="margin-bottom:0;flex:1"></div>
-          <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewPipelineModal()">
-            <i class="ti ti-plus"></i> New pipeline
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm" onclick="openPipelineTemplatesModal()">
+              <i class="ti ti-template"></i> Templates
+            </button>
+            <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewPipelineModal()">
+              <i class="ti ti-plus"></i> New pipeline
+            </button>
+          </div>
+        </div>
+
+        <!-- Kanban controls bar -->
+        <div class="kb-controls" id="kb-controls">
+          <select id="kb-client-filter" class="form-select" style="height:30px;font-size:12px;width:150px;padding:0 24px 0 8px"
+            onchange="renderKanbanBoard(State.activePipelineId)">
+            <option value="">All clients</option>
+          </select>
+          <select id="kb-swim-lane" class="form-select" style="height:30px;font-size:12px;width:150px;padding:0 24px 0 8px"
+            onchange="renderKanbanBoard(State.activePipelineId)">
+            <option value="">No grouping</option>
+            <option value="client">Group by client</option>
+            <option value="assignee">Group by assignee</option>
+          </select>
+          <div style="display:flex;gap:3px;margin-left:auto">
+            <button class="btn btn-ghost btn-sm kb-view-btn active" id="kb-view-kanban"
+              onclick="setKanbanView('kanban')">
+              <i class="ti ti-layout-kanban"></i> Kanban
+            </button>
+            <button class="btn btn-ghost btn-sm kb-view-btn" id="kb-view-table"
+              onclick="setKanbanView('table')">
+              <i class="ti ti-table"></i> Table
+            </button>
+            <button class="btn btn-ghost btn-sm kb-view-btn" id="kb-view-analytics"
+              onclick="setKanbanView('analytics')">
+              <i class="ti ti-chart-bar"></i> Analytics
+            </button>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="kb-bulk-btn" onclick="toggleKanbanBulk()">
+            <i class="ti ti-checkbox"></i> Select
           </button>
         </div>
+
+        <!-- Bulk bar for kanban -->
+        <div id="kb-bulk-bar" class="bulk-bar" style="display:none;margin-bottom:10px">
+          <span id="kb-bulk-count">0 selected</span>
+          <select id="kb-bulk-stage" class="form-select" style="height:30px;font-size:12px;width:180px;
+            background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);color:var(--bg-sidebar);padding:0 24px 0 8px"
+            onchange="bulkMoveCards(this.value)">
+            <option value="">Move to stage…</option>
+          </select>
+          <button class="btn btn-sm" style="background:var(--red);color:#fff;border:none" onclick="bulkCloseCards()">
+            <i class="ti ti-circle-check"></i> Close
+          </button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--bg-sidebar);border-color:rgba(255,255,255,0.2)"
+            onclick="clearKanbanBulk()">
+            <i class="ti ti-x"></i> Cancel
+          </button>
+        </div>
+
         <div id="kanban-board-wrap"></div>
       </div>
 
@@ -938,6 +993,22 @@
   </div>
 </div>
 <div id="chat-overlay" onclick="closeChat()" style="display:none;position:fixed;inset:0;z-index:199;background:rgba(15,14,12,0.15)"></div>
+<!-- PIPELINE TEMPLATES MODAL -->
+<div class="modal-overlay" id="pipeline-templates-modal" onclick="if(event.target===this)closePipelineTemplatesModal()">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-head">
+      <div class="modal-title">Pipeline templates</div>
+      <button class="btn btn-ghost btn-sm" onclick="closePipelineTemplatesModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--ink-2);margin-bottom:18px">
+        Choose a pre-built workflow to create a new pipeline with stages and target days already configured.
+      </p>
+      <div id="pipeline-templates-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ADD / EDIT USER MODAL -->
 <div class="modal-overlay" id="user-form-modal" onclick="if(event.target===this)closeUserModal()">
   <div class="modal">

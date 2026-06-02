@@ -1528,6 +1528,121 @@ img { display: block; max-width: 100%; }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   KANBAN CONTROLS BAR
+   ═══════════════════════════════════════════════════════════ */
+.kb-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.kb-view-btn { opacity: 0.7; }
+.kb-view-btn.active {
+  background: var(--ink); color: var(--bg-sidebar);
+  border-color: var(--ink); opacity: 1;
+}
+
+/* Card aging badge */
+.kb-age-badge {
+  font-size: 9.5px; font-family: var(--mono); font-weight: 600;
+  padding: 1px 6px; border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* Stage gate lock */
+.kb-gate-lock {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; color: var(--amber); font-weight: 600;
+  padding: 2px 6px; border-radius: 20px;
+  background: var(--amber-light);
+}
+
+/* Kanban table view */
+.kb-table {
+  width: 100%; border-collapse: collapse;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.kb-table th {
+  text-align: left; font-size: 10px; font-weight: 600;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.7px;
+  padding: 10px 14px; background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.kb-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  font-size: 13px; color: var(--ink-2); vertical-align: middle;
+}
+.kb-table tr:last-child td { border-bottom: none; }
+.kb-table tr:hover td { background: var(--bg-hover); }
+.kb-table .kb-title { font-weight: 500; color: var(--ink); cursor: pointer; }
+.kb-table .kb-title:hover { color: var(--accent); text-decoration: underline; }
+
+/* Analytics */
+.kb-analytics { display: flex; flex-direction: column; gap: 12px; }
+.kb-analytics-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.kb-analytics-stage { font-size: 12.5px; font-weight: 500; color: var(--ink); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+.kb-analytics-track { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.kb-analytics-fill  { height: 100%; border-radius: 4px; transition: width 600ms var(--ease); }
+
+/* Swim lane header */
+.kb-swim-head {
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 6px 10px; background: var(--bg-active);
+  border-radius: var(--radius-xs); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* Pipeline template cards */
+.pipe-tpl-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color var(--dur), box-shadow var(--dur), transform var(--dur) var(--ease);
+}
+.pipe-tpl-card:hover {
+  border-color: var(--border-md);
+  box-shadow: 0 2px 12px rgba(15,14,12,0.08);
+  transform: translateY(-2px);
+}
+.pipe-tpl-icon {
+  width: 38px; height: 38px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; margin-bottom: 10px;
+}
+.pipe-tpl-name { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+.pipe-tpl-desc { font-size: 11.5px; color: var(--ink-3); margin-bottom: 10px; }
+.pipe-tpl-stages { display: flex; flex-wrap: wrap; gap: 4px; }
+.pipe-tpl-stage-tag {
+  font-size: 10px; font-weight: 500;
+  padding: 1px 7px; border-radius: 20px;
+  background: var(--bg-active); color: var(--ink-2);
+}
+
+/* Kanban card bulk select */
+.kb-card-select {
+  width: 15px; height: 15px; border-radius: var(--radius-xs);
+  border: 1.5px solid var(--border-hi);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 9px; color: transparent;
+  transition: all var(--dur); flex-shrink: 0;
+}
+.kb-card-select:hover { border-color: var(--accent); }
+.kb-card-select.checked { background: var(--accent); border-color: var(--accent); color: #fff; }
+.kanban-card.kb-selected { border-color: var(--accent) !important; background: var(--accent-soft); }
+
+/* ═══════════════════════════════════════════════════════════
    STAGE COLOURS
    ═══════════════════════════════════════════════════════════ */
 .stage-color-dot {

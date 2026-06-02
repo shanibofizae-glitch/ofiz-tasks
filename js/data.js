@@ -197,6 +197,7 @@ const Sheets = {
       task.pipelineStageId || '',
       (task.subtasks  && task.subtasks.length)  ? JSON.stringify(task.subtasks)  : '',
       (task.blockedBy && task.blockedBy.length) ? JSON.stringify(task.blockedBy) : '',
+      task.stageEnteredAt || '',
     ];
   },
 
@@ -251,7 +252,7 @@ const Sheets = {
 
   /* Load all tasks from sheet on login */
   async loadTasks() {
-    const rows = await this._get('Tasks!A2:P');
+    const rows = await this._get('Tasks!A2:Q');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
@@ -272,6 +273,7 @@ const Sheets = {
         pipelineStageId: r[13] || null,
         subtasks:        _parseSt(r[14]),
         blockedBy:       _parseSt(r[15]),
+        stageEnteredAt:  r[16] || null,
       }));
   },
 
@@ -518,7 +520,7 @@ const Sheets = {
 
   /* Load stages from PipelineStages tab */
   async loadStages() {
-    const rows = await this._get('PipelineStages!A2:E');
+    const rows = await this._get('PipelineStages!A2:F');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '')
@@ -528,15 +530,16 @@ const Sheets = {
         order:      Number(r[2]) || 0,
         name:       r[3] || '',
         color:      r[4] || '',
+        targetDays: r[5] ? Number(r[5]) : 0,
       }));
   },
 
-  /* Update a stage row (for colour changes) */
+  /* Update a stage row */
   async updateStage(stage) {
     const rowNum = await this.findRow('PipelineStages', stage.id);
     if (rowNum < 0) return false;
     return !!(await this._post({ action:'update', tab:'PipelineStages', rowNum,
-      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color || ''] }));
+      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color||'', stage.targetDays||''] }));
   },
 };
 
@@ -684,10 +687,11 @@ const State = {
     const task = {
       id:           this.uid(),
       ...data,
-      createdAt:    new Date().toISOString().slice(0,10),
-      closedAt:     null,
-      closeComment: '',
-      subtasks:     data.subtasks || [],
+      createdAt:      new Date().toISOString().slice(0,10),
+      closedAt:       null,
+      closeComment:   '',
+      subtasks:       data.subtasks || [],
+      stageEnteredAt: data.pipelineId ? new Date().toISOString().slice(0,10) : null,
     };
     this.tasks.unshift(task);
     if (this.useSheets) {
@@ -841,20 +845,36 @@ const DEMO_PIPELINES = [
 ];
 
 const DEMO_STAGES = [
-  { id:'s1', pipelineId:'pipe1', order:1, name:'Documents collected', color:''         },
-  { id:'s2', pipelineId:'pipe1', order:2, name:'Review & reconcile',  color:'#b7691a'  },
-  { id:'s3', pipelineId:'pipe1', order:3, name:'Submit on FTA',       color:'#1a5fb4'  },
-  { id:'s4', pipelineId:'pipe1', order:4, name:'Save confirmation',   color:'#1e6f3e'  },
+  { id:'s1', pipelineId:'pipe1', order:1, name:'Documents collected', color:'',        targetDays:2 },
+  { id:'s2', pipelineId:'pipe1', order:2, name:'Review & reconcile',  color:'#b7691a', targetDays:3 },
+  { id:'s3', pipelineId:'pipe1', order:3, name:'Submit on FTA',       color:'#1a5fb4', targetDays:1 },
+  { id:'s4', pipelineId:'pipe1', order:4, name:'Save confirmation',   color:'#1e6f3e', targetDays:1 },
 
-  { id:'s5', pipelineId:'pipe2', order:1, name:'Statements received', color:''         },
-  { id:'s6', pipelineId:'pipe2', order:2, name:'Transactions posted', color:'#b7691a'  },
-  { id:'s7', pipelineId:'pipe2', order:3, name:'Differences checked', color:'#1a5fb4'  },
-  { id:'s8', pipelineId:'pipe2', order:4, name:'Reconciled & signed', color:'#1e6f3e'  },
+  { id:'s5', pipelineId:'pipe2', order:1, name:'Statements received', color:'',        targetDays:1 },
+  { id:'s6', pipelineId:'pipe2', order:2, name:'Transactions posted', color:'#b7691a', targetDays:3 },
+  { id:'s7', pipelineId:'pipe2', order:3, name:'Differences checked', color:'#1a5fb4', targetDays:2 },
+  { id:'s8', pipelineId:'pipe2', order:4, name:'Reconciled & signed', color:'#1e6f3e', targetDays:1 },
 
-  { id:'s9',  pipelineId:'pipe3', order:1, name:'Documents collected', color:''        },
-  { id:'s10', pipelineId:'pipe3', order:2, name:'System setup',        color:'#5b3fa6' },
-  { id:'s11', pipelineId:'pipe3', order:3, name:'Opening balances',    color:'#1a5fb4' },
-  { id:'s12', pipelineId:'pipe3', order:4, name:'First month review',  color:'#1e6f3e' },
+  { id:'s9',  pipelineId:'pipe3', order:1, name:'Documents collected', color:'',        targetDays:3 },
+  { id:'s10', pipelineId:'pipe3', order:2, name:'System setup',        color:'#5b3fa6', targetDays:2 },
+  { id:'s11', pipelineId:'pipe3', order:3, name:'Opening balances',    color:'#1a5fb4', targetDays:3 },
+  { id:'s12', pipelineId:'pipe3', order:4, name:'First month review',  color:'#1e6f3e', targetDays:2 },
+];
+
+/* Pre-built pipeline templates */
+const PIPELINE_TEMPLATES = [
+  { id:'tpl1', name:'VAT Filing',          desc:'Monthly/quarterly VAT return process',    icon:'ti-receipt',         color:'#1a5fb4',
+    stages:[{name:'Documents collected',color:'',targetDays:2},{name:'Review & reconcile',color:'#b7691a',targetDays:3},{name:'Submit on FTA',color:'#1a5fb4',targetDays:1},{name:'Confirmation saved',color:'#1e6f3e',targetDays:1}] },
+  { id:'tpl2', name:'Bank Reconciliation', desc:'Monthly bank reconciliation workflow',    icon:'ti-building-bank',   color:'#0d7a6b',
+    stages:[{name:'Statements received',color:'',targetDays:1},{name:'Transactions posted',color:'#b7691a',targetDays:3},{name:'Differences checked',color:'#1a5fb4',targetDays:2},{name:'Reconciled & signed',color:'#1e6f3e',targetDays:1}] },
+  { id:'tpl3', name:'Payroll Processing',  desc:'Monthly payroll and WPS submission',      icon:'ti-cash',            color:'#b7691a',
+    stages:[{name:'Hours collected',color:'',targetDays:2},{name:'Payroll calculated',color:'#b7691a',targetDays:2},{name:'WPS transferred',color:'#1a5fb4',targetDays:1},{name:'Filed & confirmed',color:'#1e6f3e',targetDays:1}] },
+  { id:'tpl4', name:'Client Onboarding',   desc:'New client setup and opening balances',   icon:'ti-user-plus',       color:'#5b3fa6',
+    stages:[{name:'KYC & documents',color:'',targetDays:3},{name:'System setup',color:'#5b3fa6',targetDays:2},{name:'Opening balances',color:'#1a5fb4',targetDays:3},{name:'Chart of accounts',color:'#b7691a',targetDays:2},{name:'First month review',color:'#1e6f3e',targetDays:2}] },
+  { id:'tpl5', name:'Year-End Closing',    desc:'Annual accounts preparation and filing',  icon:'ti-calendar-check',  color:'#c0392b',
+    stages:[{name:'Data collection',color:'',targetDays:5},{name:'Adjustments',color:'#b7691a',targetDays:3},{name:'Trial balance',color:'#1a5fb4',targetDays:2},{name:'Management report',color:'#5b3fa6',targetDays:2},{name:'Client sign-off',color:'#1e6f3e',targetDays:3}] },
+  { id:'tpl6', name:'Corporate Tax',       desc:'UAE corporate tax return preparation',    icon:'ti-building',        color:'#c2185b',
+    stages:[{name:'P&L review',color:'',targetDays:3},{name:'Tax calculation',color:'#b7691a',targetDays:3},{name:'EmaraTax submission',color:'#1a5fb4',targetDays:2},{name:'Filing confirmed',color:'#1e6f3e',targetDays:1}] },
 ];
 
 /* Extend State with pipeline data */
@@ -879,16 +899,25 @@ State.addPipeline = async function(name, desc, stageObjs) {
   this.pipelines.push(pipeline);
   stageObjs.forEach((s, i) => {
     const stage = { id:'s'+Date.now()+i, pipelineId:id, order:i+1,
-                    name: typeof s === 'string' ? s : s.name,
-                    color: typeof s === 'string' ? '' : (s.color || '') };
+                    name:       typeof s === 'string' ? s : s.name,
+                    color:      typeof s === 'string' ? '' : (s.color || ''),
+                    targetDays: typeof s === 'string' ? 0  : (s.targetDays || 0) };
     this.stages.push(stage);
   });
   if (this.useSheets) {
     await Sheets._post({ action:'append', tab:'Pipelines', row:[pipeline.id, pipeline.name, pipeline.desc, 'true'] });
     for (const s of this.stages.filter(s => s.pipelineId === id)) {
-      await Sheets._post({ action:'append', tab:'PipelineStages', row:[s.id, s.pipelineId, s.order, s.name, s.color||''] });
+      await Sheets._post({ action:'append', tab:'PipelineStages', row:[s.id, s.pipelineId, s.order, s.name, s.color||'', s.targetDays||''] });
     }
   }
+  return pipeline;
+};
+
+State.createPipelineFromTemplate = async function(templateId) {
+  const tpl = PIPELINE_TEMPLATES.find(t => t.id === templateId);
+  if (!tpl) return;
+  const pipeline = await this.addPipeline(tpl.name, tpl.desc, tpl.stages);
+  this.activePipelineId = pipeline.id;
   return pipeline;
 };
 
@@ -903,6 +932,7 @@ State.moveTaskStage = async function(taskId, stageId) {
   const task = this.getTask(taskId);
   if (!task) return;
   task.pipelineStageId = stageId;
+  task.stageEnteredAt  = new Date().toISOString().slice(0,10);
   task.status = 'progress';
   const stages = this.getStages(task.pipelineId);
   const lastStage = stages[stages.length - 1];
@@ -987,14 +1017,14 @@ State.updatePipeline = async function(id, patch) {
   }
 };
 
-State.addStage = async function(pipelineId, name, color) {
+State.addStage = async function(pipelineId, name, color, targetDays) {
   const existing = this.stages.filter(s => s.pipelineId === pipelineId);
   const order    = existing.length > 0 ? Math.max(...existing.map(s => s.order)) + 1 : 1;
-  const stage    = { id:'s'+Date.now(), pipelineId, order, name, color: color||'' };
+  const stage    = { id:'s'+Date.now(), pipelineId, order, name, color: color||'', targetDays: targetDays||0 };
   this.stages.push(stage);
   if (this.useSheets) {
     await Sheets._post({ action:'append', tab:'PipelineStages',
-      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color] });
+      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color, stage.targetDays||''] });
   }
   return stage;
 };
