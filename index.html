@@ -695,10 +695,12 @@
 <div class="modal-overlay" id="template-form-modal" onclick="if(event.target===this)closeTemplateModal()">
   <div class="modal">
     <div class="modal-head">
-      <div class="modal-title">New recurring template</div>
+      <div class="modal-title" id="template-form-modal-title">New recurring template</div>
       <button class="btn btn-ghost btn-sm" onclick="closeTemplateModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
+
+      <!-- Basic fields -->
       <div class="form-group">
         <label class="form-label">Task title <span style="color:var(--red)">*</span></label>
         <input type="text" id="tmf-title" class="form-input" placeholder="e.g. Bank reconciliation">
@@ -736,64 +738,72 @@
           </select>
         </div>
       </div>
-    </div>
-      <!-- Advanced settings -->
-      <div style="margin-top:8px">
-        <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:space-between"
-          onclick="document.getElementById('tmf-advanced').style.display=document.getElementById('tmf-advanced').style.display==='none'?'':'none';this.querySelector('i').className=document.getElementById('tmf-advanced').style.display===''?'ti ti-chevron-up':'ti ti-chevron-down'">
-          Advanced settings <i class="ti ti-chevron-down"></i>
-        </button>
-        <div id="tmf-advanced" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:14px">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Priority</label>
-              <select id="tmf-priority" class="form-select">
-                <option value="high">High</option>
-                <option value="medium" selected>Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Estimated hours</label>
-              <input type="number" id="tmf-hours" class="form-input" min="0" step="0.5" placeholder="e.g. 2.5">
-            </div>
+
+      <!-- Advanced settings toggle -->
+      <div class="divider" style="margin:8px 0"></div>
+      <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:space-between;margin-bottom:4px"
+        onclick="var a=document.getElementById('tmf-advanced');var open=a.style.display!=='none';a.style.display=open?'none':'';this.querySelector('.adv-icon').className='adv-icon ti '+(open?'ti-chevron-down':'ti-chevron-up')">
+        <span>Advanced settings</span>
+        <i class="adv-icon ti ti-chevron-down"></i>
+      </button>
+      <div id="tmf-advanced" style="display:none">
+        <div class="form-row" style="margin-top:10px">
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select id="tmf-priority" class="form-select">
+              <option value="high">High</option>
+              <option value="medium" selected>Medium</option>
+              <option value="low">Low</option>
+            </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Notes / Instructions</label>
-            <textarea id="tmf-notes" class="form-textarea" style="height:64px"
-              placeholder="Standard instructions that appear on every generated task…"></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Checklist <span style="color:var(--ink-3)">(copied to every generated task)</span></label>
-            <div id="tmf-subtask-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:7px"></div>
-            <div style="display:flex;gap:7px">
-              <input type="text" id="tmf-subtask-inp" class="form-input" placeholder="Add checklist item…" style="height:32px;font-size:12px"
-                onkeydown="if(event.key==='Enter'){event.preventDefault();addTemplateChecklistItem()}">
-              <button type="button" class="btn btn-ghost btn-sm" onclick="addTemplateChecklistItem()">
-                <i class="ti ti-plus"></i>
-              </button>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Pipeline</label>
-              <select id="tmf-pipeline" class="form-select" onchange="onTemplatePipelineChange(this.value)">
-                <option value="">No pipeline</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Stage</label>
-              <select id="tmf-stage" class="form-select"></select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Default comments <span style="color:var(--ink-3)">(one per line — auto-posted on generation)</span></label>
-            <textarea id="tmf-comments" class="form-textarea" style="height:64px"
-              placeholder="e.g. Please review Q1 figures before filing."></textarea>
+            <label class="form-label">Estimated hours</label>
+            <input type="number" id="tmf-hours" class="form-input" min="0" step="0.5" placeholder="e.g. 2.5">
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Notes / Instructions</label>
+          <textarea id="tmf-notes" class="form-textarea" style="height:64px"
+            placeholder="Standard instructions that appear on every generated task…"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            Checklist
+            <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"> — copied to every generated task</span>
+          </label>
+          <div id="tmf-subtask-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:7px"></div>
+          <div style="display:flex;gap:7px">
+            <input type="text" id="tmf-subtask-inp" class="form-input"
+              placeholder="Add checklist item…" style="height:32px;font-size:12px"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();addTemplateChecklistItem()}">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="addTemplateChecklistItem()">
+              <i class="ti ti-plus"></i>
+            </button>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Pipeline</label>
+            <select id="tmf-pipeline" class="form-select" onchange="onTemplatePipelineChange(this.value)">
+              <option value="">No pipeline</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stage</label>
+            <select id="tmf-stage" class="form-select"><option value="">—</option></select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            Default comments
+            <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"> — one per line, auto-posted on generation</span>
+          </label>
+          <textarea id="tmf-comments" class="form-textarea" style="height:64px"
+            placeholder="e.g. Please review Q1 figures before filing."></textarea>
+        </div>
       </div>
-    </div>
+
+    </div><!-- end modal-body -->
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeTemplateModal()">Cancel</button>
       <button class="btn btn-primary" onclick="submitTemplateForm()">

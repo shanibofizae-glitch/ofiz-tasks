@@ -942,7 +942,7 @@ function _populateTemplateLists() {
 function openNewTemplateModal() {
   editTemplateId = null;
   _tmfSubtasks   = [];
-  document.querySelector('#template-form-modal .modal-title').textContent = 'New recurring template';
+  document.getElementById('template-form-modal-title').textContent = 'New recurring template';
   document.getElementById('tmf-title').value      = '';
   document.getElementById('tmf-recurrence').value = 'monthly';
   document.getElementById('tmf-day-month').value  = '';
@@ -964,7 +964,7 @@ function openEditTemplateModal(templateId) {
   _tmfSubtasks   = [];
   const tp = State.templates.find(t => t.id === templateId);
   if (!tp) return;
-  document.querySelector('#template-form-modal .modal-title').textContent = 'Edit template';
+  document.getElementById('template-form-modal-title').textContent = 'Edit template';
   _populateTemplateLists();
   document.getElementById('tmf-title').value      = tp.title;
   document.getElementById('tmf-client').value     = tp.clientId;
@@ -2758,7 +2758,7 @@ async function saveAsTemplate(taskId) {
   if (!src) return;
   /* Pre-fill template form with task data */
   openNewTemplateModal();
-  document.querySelector('#template-form-modal .modal-title').textContent = 'Save as template';
+  document.getElementById('template-form-modal-title').textContent = 'Save as template';
   document.getElementById('tmf-title').value    = src.title;
   document.getElementById('tmf-client').value   = src.clientId;
   document.getElementById('tmf-assignee').value = src.assigneeId;
