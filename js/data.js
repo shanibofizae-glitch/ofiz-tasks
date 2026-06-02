@@ -3,6 +3,12 @@
    Fill in your 4 credentials in the CONFIG block below.
    ============================================================ */
 
+/* Parse subtasks JSON stored in sheet column */
+function _parseSt(val) {
+  if (!val || !String(val).trim()) return [];
+  try { return JSON.parse(val); } catch(e) { return []; }
+}
+
 const CONFIG = {
   SHEET_ID:   '1flHjdPaidpBxm8n1ehimKinVFJpPPE0DsbmfQhegstc',
   API_KEY:    'AIzaSyA6Z0B8SAenTIy2kqPcJX0Jz5WXB6OCYls',
@@ -109,6 +115,59 @@ const Sheets = {
     return Number(result);
   },
 
+  /* Find a row in any tab by ID (Apps Script must support tab param) */
+  async findRow(tab, id) {
+    const result = await this._post({ action:'findRow', tab, id });
+    if (result === false || result === -1) return -1;
+    return Number(result);
+  },
+
+  /* ── User writes ──────────────────────────────────── */
+  async updateUser(user) {
+    const rowNum = await this.findRow('Users', user.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Users', rowNum,
+      row:[user.id, user.name, user.email, user.role, user.initials,
+           user.avClass, user.password, user.telegramChatId||''] }));
+  },
+
+  async addUser(user) {
+    return !!(await this._post({ action:'append', tab:'Users',
+      row:[user.id, user.name, user.email, user.role, user.initials,
+           user.avClass, user.password, user.telegramChatId||''] }));
+  },
+
+  async deleteUser(userId) {
+    const rowNum = await this.findRow('Users', userId);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Users', rowNum,
+      row:['','','','','','','',''] }));
+  },
+
+  /* ── Client writes ────────────────────────────────── */
+  async updateClient(client) {
+    const rowNum = await this.findRow('Clients', client.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Clients', rowNum,
+      row:[client.id, client.name, client.short, client.color, client.bg, String(client.active)] }));
+  },
+
+  async deleteClient(clientId) {
+    const rowNum = await this.findRow('Clients', clientId);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Clients', rowNum,
+      row:['','','','','',''] }));
+  },
+
+  /* ── Pipeline delete ──────────────────────────────── */
+  async deletePipeline(pipelineId) {
+    const rowNum = await this.findRow('Pipelines', pipelineId);
+    if (rowNum >= 0) {
+      await this._post({ action:'update', tab:'Pipelines', rowNum, row:['','','',''] });
+    }
+    return true;
+  },
+
   /* Convert task object to a flat array matching sheet columns */
   taskToRow(task) {
     return [
@@ -126,6 +185,8 @@ const Sheets = {
       task.closeComment    || '',
       task.pipelineId      || '',
       task.pipelineStageId || '',
+      (task.subtasks  && task.subtasks.length)  ? JSON.stringify(task.subtasks)  : '',
+      (task.blockedBy && task.blockedBy.length) ? JSON.stringify(task.blockedBy) : '',
     ];
   },
 
@@ -170,28 +231,75 @@ const Sheets = {
     return await this._post({ action:'append', tab:'AuditLog', row:this.commentToRow(cm) });
   },
 
+  /* Update an existing comment's text */
+  async updateComment(cm) {
+    const rowNum = await this.findRow('AuditLog', cm.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'AuditLog', rowNum,
+      row:[cm.id, cm.taskId, cm.userId, cm.text, cm.createdAt] }));
+  },
+
   /* Load all tasks from sheet on login */
   async loadTasks() {
-    const rows = await this._get('Tasks!A2:N');
+    const rows = await this._get('Tasks!A2:P');
     if (!rows || rows.length === 0) return [];
     return rows
-      .filter(r => r[0] && r[0].trim() !== '')
+      .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
       .map(r => ({
-        id:           r[0]  || '',
-        title:        r[1]  || '',
-        clientId:     r[2]  || '',
-        type:         r[3]  || 'oneoff',
-        status:       r[4]  || 'pending',
-        priority:     r[5]  || 'medium',
-        assigneeId:   r[6]  || '',
-        dueDate:      r[7]  || '',
-        notes:        r[8]  || '',
-        createdAt:    r[9]  || '',
-        closedAt:     r[10] || null,
+        id:              r[0]  || '',
+        title:           r[1]  || '',
+        clientId:        r[2]  || '',
+        type:            r[3]  || 'oneoff',
+        status:          r[4]  || 'pending',
+        priority:        r[5]  || 'medium',
+        assigneeId:      r[6]  || '',
+        dueDate:         r[7]  || '',
+        notes:           r[8]  || '',
+        createdAt:       r[9]  || '',
+        closedAt:        r[10] || null,
         closeComment:    r[11] || '',
         pipelineId:      r[12] || null,
         pipelineStageId: r[13] || null,
+        subtasks:        _parseSt(r[14]),
+        blockedBy:       _parseSt(r[15]),
       }));
+  },
+
+  /* Load activity events from AuditLog (ev* entries) */
+  async loadActivityLog() {
+    const rows = await this._get('AuditLog!A2:E');
+    if (!rows || rows.length === 0) return [];
+    return rows
+      .filter(r => r[0] && r[0].startsWith('ev'))
+      .map(r => ({ id:r[0]||'', taskId:r[1]||'', userId:r[2]||'', text:r[3]||'', createdAt:r[4]||'' }));
+  },
+
+  /* Load documents from Documents tab */
+  async loadDocuments() {
+    const rows = await this._get('Documents!A2:F');
+    if (!rows || rows.length === 0) return [];
+    return rows
+      .filter(r => r[0] && r[0].trim() !== '')
+      .map(r => ({ id:r[0]||'', clientId:r[1]||'', type:r[2]||'', number:r[3]||'', expiryDate:r[4]||'', notes:r[5]||'' }));
+  },
+
+  async addDocument(doc) {
+    return !!(await this._post({ action:'append', tab:'Documents',
+      row:[doc.id, doc.clientId, doc.type, doc.number, doc.expiryDate, doc.notes||''] }));
+  },
+
+  async updateDocument(doc) {
+    const rowNum = await this.findRow('Documents', doc.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Documents', rowNum,
+      row:[doc.id, doc.clientId, doc.type, doc.number, doc.expiryDate, doc.notes||''] }));
+  },
+
+  async deleteDocument(docId) {
+    const rowNum = await this.findRow('Documents', docId);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Documents', rowNum,
+      row:['','','','','',''] }));
   },
 
   /* Load all comments from AuditLog on login */
@@ -214,7 +322,7 @@ const Sheets = {
     const rows = await this._get('Clients!A2:F');
     if (!rows || rows.length === 0) return [];
     return rows
-      .filter(r => r[0] && r[0].trim() !== '')
+      .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
       .map(r => ({
         id:     r[0] || '',
         name:   r[1] || '',
@@ -227,19 +335,137 @@ const Sheets = {
 
   /* Load all users with passwords from Users tab */
   async loadUsers() {
-    const rows = await this._get('Users!A2:G');
+    const rows = await this._get('Users!A2:H');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '')
       .map(r => ({
-        id:       r[0] || '',
-        name:     r[1] || '',
-        email:    r[2] || '',
-        role:     r[3] || 'viewer',
-        initials: r[4] || '??',
-        avClass:  r[5] || 'av-viewer',
-        password: r[6] || '',
+        id:             r[0] || '',
+        name:           r[1] || '',
+        email:          r[2] || '',
+        role:           r[3] || 'viewer',
+        initials:       r[4] || '??',
+        avClass:        r[5] || 'av-viewer',
+        password:       r[6] || '',
+        telegramChatId: r[7] || '',
       }));
+  },
+
+  /* Saved filter views */
+  async loadSavedViews() {
+    const rows = await this._get('SavedViews!A2:D');
+    if (!rows || rows.length === 0) return [];
+    return rows.filter(r => r[0]).map(r => ({
+      id: r[0]||'', name: r[1]||'', userId: r[2]||'', filters: _parseSt(r[3]),
+    }));
+  },
+  async addSavedView(v) {
+    return !!(await this._post({ action:'append', tab:'SavedViews',
+      row:[v.id, v.name, v.userId, JSON.stringify(v.filters)] }));
+  },
+  async deleteSavedView(id) {
+    const rowNum = await this.findRow('SavedViews', id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'SavedViews', rowNum, row:['','','',''] }));
+  },
+
+  /* Time logs */
+  async loadTimeLogs() {
+    const rows = await this._get('TimeLog!A2:G');
+    if (!rows || rows.length === 0) return [];
+    return rows.filter(r => r[0]).map(r => ({
+      id: r[0]||'', taskId: r[1]||'', userId: r[2]||'',
+      hours: Number(r[3])||0, description: r[4]||'',
+      date: r[5]||'', billable: r[6] !== 'false',
+    }));
+  },
+  async addTimeLog(log) {
+    return !!(await this._post({ action:'append', tab:'TimeLog',
+      row:[log.id, log.taskId, log.userId, log.hours, log.description||'', log.date, String(log.billable)] }));
+  },
+  async deleteTimeLog(logId) {
+    const rowNum = await this.findRow('TimeLog', logId);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'TimeLog', rowNum,
+      row:['','','','','','',''] }));
+  },
+
+  /* Load templates from Templates tab */
+  async loadTemplates() {
+    const rows = await this._get('Templates!A2:H');
+    if (!rows || rows.length === 0) return [];
+    return rows
+      .filter(r => r[0] && r[0].trim() !== '')
+      .map(r => ({
+        id:         r[0] || '',
+        title:      r[1] || '',
+        clientId:   r[2] || '',
+        recurrence: r[3] || 'monthly',
+        dayOfMonth: r[4] ? Number(r[4]) : null,
+        dayOfWeek:  r[5] || null,
+        assigneeId: r[6] || '',
+        active:     r[7] !== 'false',
+      }));
+  },
+
+  async addTemplate(template) {
+    return !!(await this._post({ action:'append', tab:'Templates',
+      row:[template.id, template.title, template.clientId, template.recurrence,
+           template.dayOfMonth || '', template.dayOfWeek || '',
+           template.assigneeId, String(template.active)] }));
+  },
+
+  async updateTemplate(template) {
+    const rowNum = await this.findRow('Templates', template.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Templates', rowNum,
+      row:[template.id, template.title, template.clientId, template.recurrence,
+           template.dayOfMonth || '', template.dayOfWeek || '',
+           template.assigneeId, String(template.active)] }));
+  },
+
+  async deleteTemplate(templateId) {
+    const rowNum = await this.findRow('Templates', templateId);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Templates', rowNum,
+      row:['','','','','','','',''] }));
+  },
+
+  /* Load pipelines from Pipelines tab */
+  async loadPipelines() {
+    const rows = await this._get('Pipelines!A2:D');
+    if (!rows || rows.length === 0) return [];
+    return rows
+      .filter(r => r[0] && r[0].trim() !== '')
+      .map(r => ({
+        id:     r[0] || '',
+        name:   r[1] || '',
+        desc:   r[2] || '',
+        active: r[3] !== 'false',
+      }));
+  },
+
+  /* Load stages from PipelineStages tab */
+  async loadStages() {
+    const rows = await this._get('PipelineStages!A2:E');
+    if (!rows || rows.length === 0) return [];
+    return rows
+      .filter(r => r[0] && r[0].trim() !== '')
+      .map(r => ({
+        id:         r[0] || '',
+        pipelineId: r[1] || '',
+        order:      Number(r[2]) || 0,
+        name:       r[3] || '',
+        color:      r[4] || '',
+      }));
+  },
+
+  /* Update a stage row (for colour changes) */
+  async updateStage(stage) {
+    const rowNum = await this.findRow('PipelineStages', stage.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'PipelineStages', rowNum,
+      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color || ''] }));
   },
 };
 
@@ -247,14 +473,18 @@ const Sheets = {
    State — in-memory store + all CRUD with Sheet sync
    ══════════════════════════════════════════════════════════ */
 const State = {
-  user:      null,
-  tasks:     [...DEMO.tasks],
-  comments:  [...DEMO.comments],
-  clients:   [...DEMO.clients],
-  users:     [...DEMO.users],
-  templates: [...DEMO.templates],
-  nextId:    100,
-  useSheets: true,   /* ← keep true now that credentials are set */
+  user:        null,
+  tasks:       [...DEMO.tasks],
+  comments:    [...DEMO.comments],
+  clients:     [...DEMO.clients],
+  users:       [...DEMO.users],
+  templates:   [...DEMO.templates],
+  activityLog: [],
+  documents:   [],
+  savedViews:  [],
+  timeLogs:    [],
+  nextId:      Math.floor(Date.now() / 1000),
+  useSheets:   true,
 
   uid()  { return 't'  + (++this.nextId); },
   cmId() { return 'cm' + (++this.nextId); },
@@ -267,7 +497,12 @@ const State = {
 
   overdueTasks() {
     const today = new Date().toISOString().slice(0,10);
-    return this.tasks.filter(t => t.status !== 'done' && t.dueDate < today);
+    const seen  = new Set();
+    return this.tasks.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return t.status !== 'done' && t.dueDate < today;
+    });
   },
 
   todayTasks() {
@@ -280,33 +515,82 @@ const State = {
     if (!this.useSheets) return;
     try {
       console.log('[State] Loading from Google Sheets...');
-      const [sheetTasks, sheetComments, sheetClients, sheetUsers] = await Promise.all([
+      const [sheetTasks, sheetComments, sheetClients, sheetUsers,
+             sheetPipelines, sheetStages, sheetTemplates,
+             sheetActivity, sheetDocs, sheetViews, sheetTimeLogs] = await Promise.all([
         Sheets.loadTasks(),
         Sheets.loadComments(),
         Sheets.loadClients(),
         Sheets.loadUsers(),
+        Sheets.loadPipelines(),
+        Sheets.loadStages(),
+        Sheets.loadTemplates(),
+        Sheets.loadActivityLog(),
+        Sheets.loadDocuments(),
+        Sheets.loadSavedViews(),
+        Sheets.loadTimeLogs(),
       ]);
       if (sheetTasks.length > 0) {
-        const sheetIds = new Set(sheetTasks.map(t => t.id));
-        const demoOnly = DEMO.tasks.filter(t => !sheetIds.has(t.id));
-        this.tasks = [...sheetTasks, ...demoOnly];
-        console.log('[State] Loaded', sheetTasks.length, 'tasks from Sheets');
+        /* Deduplicate by ID — first occurrence wins (original task) */
+        const taskMap = new Map();
+        sheetTasks.forEach(t => { if (!taskMap.has(t.id)) taskMap.set(t.id, t); });
+        this.tasks = Array.from(taskMap.values());
+        /* Advance nextId past every existing ID to prevent future collisions */
+        this.tasks.forEach(t => {
+          const m = t.id.match(/^[a-z]+(\d+)$/i);
+          if (m) this.nextId = Math.max(this.nextId, parseInt(m[1], 10));
+        });
+        const dupes = sheetTasks.length - this.tasks.length;
+        if (dupes > 0) console.warn(`[State] Removed ${dupes} duplicate task ID(s) from loaded data`);
+        console.log('[State] Loaded', this.tasks.length, 'tasks from Sheets (nextId now', this.nextId, ')');
       } else {
         console.log('[State] No tasks in sheet yet — showing demo data');
       }
       if (sheetComments.length > 0) {
-        this.comments = sheetComments;
-        console.log('[State] Loaded', sheetComments.length, 'comments from Sheets');
+        /* Deduplicate comments by ID */
+        const cmMap = new Map();
+        sheetComments.forEach(c => { if (!cmMap.has(c.id)) cmMap.set(c.id, c); });
+        this.comments = Array.from(cmMap.values());
+        this.comments.forEach(c => {
+          const m = c.id.match(/^[a-z]+(\d+)$/i);
+          if (m) this.nextId = Math.max(this.nextId, parseInt(m[1], 10));
+        });
+        console.log('[State] Loaded', this.comments.length, 'comments from Sheets');
       }
       if (sheetClients && sheetClients.length > 0) {
-        const sheetIds = new Set(sheetClients.map(c => c.id));
-        const demoOnly = DEMO.clients.filter(c => !sheetIds.has(c.id));
-        this.clients = [...sheetClients, ...demoOnly];
+        this.clients = sheetClients; /* sheet is the sole source of truth */
         console.log('[State] Loaded', sheetClients.length, 'clients from Sheets');
       }
       if (sheetUsers && sheetUsers.length > 0) {
         this.users = sheetUsers;
         console.log('[State] Loaded', sheetUsers.length, 'users from Sheets');
+      }
+      if (sheetPipelines && sheetPipelines.length > 0) {
+        this.pipelines = sheetPipelines;
+        if (!this.activePipelineId || !this.pipelines.find(p => p.id === this.activePipelineId)) {
+          this.activePipelineId = this.pipelines[0]?.id || null;
+        }
+        console.log('[State] Loaded', sheetPipelines.length, 'pipelines from Sheets');
+      }
+      if (sheetStages && sheetStages.length > 0) {
+        this.stages = sheetStages;
+        console.log('[State] Loaded', sheetStages.length, 'stages from Sheets');
+      }
+      if (sheetTemplates && sheetTemplates.length > 0) {
+        this.templates = sheetTemplates;
+        console.log('[State] Loaded', sheetTemplates.length, 'templates from Sheets');
+      }
+      if (sheetActivity && sheetActivity.length > 0) {
+        this.activityLog = sheetActivity;
+      }
+      if (sheetDocs && sheetDocs.length > 0) {
+        this.documents = sheetDocs;
+      }
+      if (sheetViews && sheetViews.length > 0) {
+        this.savedViews = sheetViews.filter(v => v.userId === this.user?.id || !v.userId);
+      }
+      if (sheetTimeLogs && sheetTimeLogs.length > 0) {
+        this.timeLogs = sheetTimeLogs;
       }
     } catch(e) {
       console.error('[State.loadFromSheets] Failed:', e);
@@ -321,12 +605,14 @@ const State = {
       createdAt:    new Date().toISOString().slice(0,10),
       closedAt:     null,
       closeComment: '',
+      subtasks:     data.subtasks || [],
     };
     this.tasks.unshift(task);
     if (this.useSheets) {
       const ok = await Sheets.addTask(task);
       if (!ok) console.warn('[State.addTask] Sheet write failed — task saved locally only');
     }
+    await this.addActivity(task.id, 'Task created');
     return task;
   },
 
@@ -350,6 +636,7 @@ const State = {
       closeComment: comment,
     });
     if (comment) await this.addComment(id, comment);
+    await this.addActivity(id, `Task closed${comment ? ': ' + comment.slice(0,60) : ''}`);
     return task;
   },
 
@@ -357,9 +644,24 @@ const State = {
   async deleteTask(id) {
     this.tasks = this.tasks.filter(t => t.id !== id);
     if (this.useSheets) {
-      const ok = await Sheets.deleteTask(id);
-      if (!ok) console.warn('[State.deleteTask] Sheet delete failed — deleted locally only');
+      const rowNum = await Sheets.findTaskRow(id);
+      if (rowNum >= 0) {
+        await Sheets._post({ action:'update', tab:'Tasks', rowNum,
+          row:['','','','','','','','','','','','','',''] });
+      } else {
+        /* Demo task not in sheet — write tombstone so it won't reappear */
+        await Sheets._post({ action:'append', tab:'Tasks',
+          row:[id, '__deleted__', '', '', '', '', '', '', '', '', '', '', '', ''] });
+      }
     }
+  },
+
+  /* ── Edit a comment ─────────────────────────────────── */
+  async updateComment(id, text) {
+    const cm = this.comments.find(c => c.id === id);
+    if (!cm) return;
+    cm.text = text;
+    if (this.useSheets) Sheets.updateComment(cm);
   },
 
   /* ── Add a comment ───────────────────────────────────── */
@@ -380,7 +682,10 @@ const State = {
 
   /* ── Filter tasks for current view ──────────────────── */
   filterTasks({ status, type, clientId, assigneeId, search } = {}) {
+    const seen = new Set();
     return this.tasks.filter(t => {
+      if (seen.has(t.id)) return false; /* deduplicate */
+      seen.add(t.id);
       if (status     && status     !== 'all' && t.status     !== status)     return false;
       if (type       && type       !== 'all' && t.type       !== type)       return false;
       if (clientId   && clientId   !== 'all' && t.clientId   !== clientId)   return false;
@@ -440,20 +745,20 @@ const DEMO_PIPELINES = [
 ];
 
 const DEMO_STAGES = [
-  { id:'s1', pipelineId:'pipe1', order:1, name:'Documents collected' },
-  { id:'s2', pipelineId:'pipe1', order:2, name:'Review & reconcile'  },
-  { id:'s3', pipelineId:'pipe1', order:3, name:'Submit on FTA'       },
-  { id:'s4', pipelineId:'pipe1', order:4, name:'Save confirmation'   },
+  { id:'s1', pipelineId:'pipe1', order:1, name:'Documents collected', color:''         },
+  { id:'s2', pipelineId:'pipe1', order:2, name:'Review & reconcile',  color:'#b7691a'  },
+  { id:'s3', pipelineId:'pipe1', order:3, name:'Submit on FTA',       color:'#1a5fb4'  },
+  { id:'s4', pipelineId:'pipe1', order:4, name:'Save confirmation',   color:'#1e6f3e'  },
 
-  { id:'s5', pipelineId:'pipe2', order:1, name:'Statements received' },
-  { id:'s6', pipelineId:'pipe2', order:2, name:'Transactions posted'  },
-  { id:'s7', pipelineId:'pipe2', order:3, name:'Differences checked'  },
-  { id:'s8', pipelineId:'pipe2', order:4, name:'Reconciled & signed'  },
+  { id:'s5', pipelineId:'pipe2', order:1, name:'Statements received', color:''         },
+  { id:'s6', pipelineId:'pipe2', order:2, name:'Transactions posted', color:'#b7691a'  },
+  { id:'s7', pipelineId:'pipe2', order:3, name:'Differences checked', color:'#1a5fb4'  },
+  { id:'s8', pipelineId:'pipe2', order:4, name:'Reconciled & signed', color:'#1e6f3e'  },
 
-  { id:'s9',  pipelineId:'pipe3', order:1, name:'Documents collected' },
-  { id:'s10', pipelineId:'pipe3', order:2, name:'System setup'        },
-  { id:'s11', pipelineId:'pipe3', order:3, name:'Opening balances'    },
-  { id:'s12', pipelineId:'pipe3', order:4, name:'First month review'  },
+  { id:'s9',  pipelineId:'pipe3', order:1, name:'Documents collected', color:''        },
+  { id:'s10', pipelineId:'pipe3', order:2, name:'System setup',        color:'#5b3fa6' },
+  { id:'s11', pipelineId:'pipe3', order:3, name:'Opening balances',    color:'#1a5fb4' },
+  { id:'s12', pipelineId:'pipe3', order:4, name:'First month review',  color:'#1e6f3e' },
 ];
 
 /* Extend State with pipeline data */
@@ -463,23 +768,39 @@ State.activePipelineId = State.pipelines[0]?.id || null;
 
 State.getPipeline  = function(id) { return this.pipelines.find(p => p.id === id); };
 State.getStages    = function(pipelineId) { return this.stages.filter(s => s.pipelineId === pipelineId).sort((a,b) => a.order - b.order); };
-State.getPipeTasks = function(pipelineId) { return this.tasks.filter(t => t.pipelineId === pipelineId); };
+State.getPipeTasks = function(pipelineId) {
+  const seen = new Set();
+  return this.tasks.filter(t => {
+    if (t.pipelineId !== pipelineId || seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+};
 
-State.addPipeline = async function(name, desc, stageNames) {
+State.addPipeline = async function(name, desc, stageObjs) {
   const id = 'pipe' + Date.now();
   const pipeline = { id, name, desc, active:true };
   this.pipelines.push(pipeline);
-  stageNames.forEach((name, i) => {
-    const stage = { id:'s'+Date.now()+i, pipelineId:id, order:i+1, name };
+  stageObjs.forEach((s, i) => {
+    const stage = { id:'s'+Date.now()+i, pipelineId:id, order:i+1,
+                    name: typeof s === 'string' ? s : s.name,
+                    color: typeof s === 'string' ? '' : (s.color || '') };
     this.stages.push(stage);
   });
   if (this.useSheets) {
     await Sheets._post({ action:'append', tab:'Pipelines', row:[pipeline.id, pipeline.name, pipeline.desc, 'true'] });
     for (const s of this.stages.filter(s => s.pipelineId === id)) {
-      await Sheets._post({ action:'append', tab:'PipelineStages', row:[s.id, s.pipelineId, s.order, s.name] });
+      await Sheets._post({ action:'append', tab:'PipelineStages', row:[s.id, s.pipelineId, s.order, s.name, s.color||''] });
     }
   }
   return pipeline;
+};
+
+State.updateStageColor = async function(stageId, color) {
+  const stage = this.stages.find(s => s.id === stageId);
+  if (!stage) return;
+  stage.color = color || '';
+  if (this.useSheets) Sheets.updateStage(stage);
 };
 
 State.moveTaskStage = async function(taskId, stageId) {
@@ -491,4 +812,281 @@ State.moveTaskStage = async function(taskId, stageId) {
   const lastStage = stages[stages.length - 1];
   if (lastStage && stageId === lastStage.id) task.status = 'done';
   if (this.useSheets) await Sheets.updateTask(task);
+  const stageName = stages.find(s => s.id === stageId)?.name || stageId;
+  await this.addActivity(taskId, `Moved to stage: ${stageName}`);
+};
+
+State.addTemplate = async function(data) {
+  const template = { id:'tp' + Date.now(), ...data, active:true };
+  this.templates.push(template);
+  if (this.useSheets) Sheets.addTemplate(template);
+  return template;
+};
+
+State.updateTemplate = async function(id, patch) {
+  const idx = this.templates.findIndex(t => t.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.templates[idx], patch);
+  if (this.useSheets) Sheets.updateTemplate(this.templates[idx]);
+  return this.templates[idx];
+};
+
+State.deleteTemplate = async function(id) {
+  this.templates = this.templates.filter(t => t.id !== id);
+  if (this.useSheets) Sheets.deleteTemplate(id);
+};
+
+State.updateUser = async function(id, patch) {
+  const idx = this.users.findIndex(u => u.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.users[idx], patch);
+  if (this.useSheets) Sheets.updateUser(this.users[idx]);
+  return this.users[idx];
+};
+
+State.addUser = async function(data) {
+  const user = { id:'u' + Date.now(), ...data };
+  this.users.push(user);
+  if (this.useSheets) Sheets.addUser(user);
+  return user;
+};
+
+State.deleteUser = async function(id) {
+  this.users = this.users.filter(u => u.id !== id);
+  if (this.useSheets) Sheets.deleteUser(id);
+};
+
+State.updateClient = async function(id, patch) {
+  const idx = this.clients.findIndex(c => c.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.clients[idx], patch);
+  if (this.useSheets) Sheets.updateClient(this.clients[idx]);
+  return this.clients[idx];
+};
+
+State.deleteClient = async function(id) {
+  this.clients = this.clients.filter(c => c.id !== id);
+  if (this.useSheets) {
+    const rowNum = await Sheets.findRow('Clients', id);
+    if (rowNum >= 0) {
+      await Sheets._post({ action:'update', tab:'Clients', rowNum, row:['','','','','',''] });
+    } else {
+      /* Demo client not in sheet — write tombstone */
+      await Sheets._post({ action:'append', tab:'Clients',
+        row:[id, '__deleted__', '', '', '', ''] });
+    }
+  }
+};
+
+State.updatePipeline = async function(id, patch) {
+  const p = this.pipelines.find(p => p.id === id);
+  if (!p) return;
+  Object.assign(p, patch);
+  if (this.useSheets) {
+    const rowNum = await Sheets.findRow('Pipelines', id);
+    if (rowNum >= 0) {
+      await Sheets._post({ action:'update', tab:'Pipelines', rowNum,
+        row:[p.id, p.name, p.desc, String(p.active)] });
+    }
+  }
+};
+
+State.addStage = async function(pipelineId, name, color) {
+  const existing = this.stages.filter(s => s.pipelineId === pipelineId);
+  const order    = existing.length > 0 ? Math.max(...existing.map(s => s.order)) + 1 : 1;
+  const stage    = { id:'s'+Date.now(), pipelineId, order, name, color: color||'' };
+  this.stages.push(stage);
+  if (this.useSheets) {
+    await Sheets._post({ action:'append', tab:'PipelineStages',
+      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color] });
+  }
+  return stage;
+};
+
+State.deleteStage = async function(stageId) {
+  this.tasks.forEach(t => { if (t.pipelineStageId === stageId) t.pipelineStageId = null; });
+  this.stages = this.stages.filter(s => s.id !== stageId);
+  if (this.useSheets) {
+    const rowNum = await Sheets.findRow('PipelineStages', stageId);
+    if (rowNum >= 0) {
+      await Sheets._post({ action:'update', tab:'PipelineStages', rowNum, row:['','','','',''] });
+    }
+  }
+};
+
+State.updateStageData = async function(stageId, patch) {
+  const stage = this.stages.find(s => s.id === stageId);
+  if (!stage) return;
+  Object.assign(stage, patch);
+  if (this.useSheets) Sheets.updateStage(stage);
+};
+
+State.deletePipeline = async function(id) {
+  this.tasks.forEach(t => {
+    if (t.pipelineId === id) { t.pipelineId = null; t.pipelineStageId = null; }
+  });
+  this.stages = this.stages.filter(s => s.pipelineId !== id);
+  this.pipelines = this.pipelines.filter(p => p.id !== id);
+  if (this.activePipelineId === id) {
+    this.activePipelineId = this.pipelines[0]?.id || null;
+  }
+  if (this.useSheets) Sheets.deletePipeline(id);
+};
+
+/* ─── Sub-tasks ─────────────────────────────────────────── */
+State.addSubtask = async function(taskId, text) {
+  const task = this.getTask(taskId);
+  if (!task) return null;
+  if (!task.subtasks) task.subtasks = [];
+  const st = { id:'st'+Date.now(), text: text.trim(), done:false };
+  task.subtasks.push(st);
+  if (this.useSheets) Sheets.updateTask(task);
+  return st;
+};
+
+State.toggleSubtask = async function(taskId, stId) {
+  const task = this.getTask(taskId);
+  const st   = task?.subtasks?.find(s => s.id === stId);
+  if (!st) return;
+  st.done = !st.done;
+  if (this.useSheets) Sheets.updateTask(task);
+};
+
+State.deleteSubtask = async function(taskId, stId) {
+  const task = this.getTask(taskId);
+  if (!task) return;
+  task.subtasks = (task.subtasks || []).filter(s => s.id !== stId);
+  if (this.useSheets) Sheets.updateTask(task);
+};
+
+/* ─── Activity log ──────────────────────────────────────── */
+State.activityLog = [];
+
+State.addActivity = async function(taskId, text) {
+  if (!this.user) return; /* skip during initial load */
+  const ev = {
+    id:        'ev' + (++this.nextId),
+    taskId,
+    userId:    this.user?.id || '',
+    text,
+    createdAt: new Date().toLocaleString('en-GB', {
+      day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit',
+    }),
+  };
+  this.activityLog.push(ev);
+  if (this.useSheets) {
+    Sheets._post({ action:'append', tab:'AuditLog',
+      row:[ev.id, ev.taskId, ev.userId, ev.text, ev.createdAt] });
+  }
+};
+
+/* ─── Documents ─────────────────────────────────────────── */
+State.documents = [];
+
+State.addDocument = async function(data) {
+  const doc = { id:'doc'+Date.now(), ...data };
+  this.documents.push(doc);
+  if (this.useSheets) Sheets.addDocument(doc);
+  return doc;
+};
+
+State.updateDocument = async function(id, patch) {
+  const idx = this.documents.findIndex(d => d.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.documents[idx], patch);
+  if (this.useSheets) Sheets.updateDocument(this.documents[idx]);
+  return this.documents[idx];
+};
+
+State.deleteDocument = async function(id) {
+  this.documents = this.documents.filter(d => d.id !== id);
+  if (this.useSheets) Sheets.deleteDocument(id);
+};
+
+State.getClientDocs = function(clientId) {
+  return this.documents.filter(d => d.clientId === clientId);
+};
+
+State.expiringDocuments = function(days = 30) {
+  const today = new Date().toISOString().slice(0,10);
+  const limit = new Date(Date.now() + days * 86400000).toISOString().slice(0,10);
+  return this.documents
+    .filter(d => d.expiryDate)
+    .filter(d => d.expiryDate <= limit)
+    .sort((a,b) => a.expiryDate.localeCompare(b.expiryDate));
+};
+
+/* ─── Task Dependencies ─────────────────────────────────── */
+State.addDependency = async function(taskId, blockedById) {
+  const task = this.getTask(taskId);
+  if (!task) return;
+  if (!task.blockedBy) task.blockedBy = [];
+  if (!task.blockedBy.includes(blockedById)) {
+    task.blockedBy.push(blockedById);
+    if (this.useSheets) Sheets.updateTask(task);
+    await this.addActivity(taskId, `Added dependency: blocked by task ${blockedById}`);
+  }
+};
+
+State.removeDependency = async function(taskId, blockedById) {
+  const task = this.getTask(taskId);
+  if (!task) return;
+  task.blockedBy = (task.blockedBy || []).filter(id => id !== blockedById);
+  if (this.useSheets) Sheets.updateTask(task);
+  await this.addActivity(taskId, `Removed dependency`);
+};
+
+State.isBlocked = function(taskId) {
+  const task = this.getTask(taskId);
+  if (!task?.blockedBy?.length) return false;
+  return task.blockedBy.some(bid => {
+    const blocker = this.getTask(bid);
+    return blocker && blocker.status !== 'done';
+  });
+};
+
+/* ─── Saved Filter Views ────────────────────────────────── */
+State.addSavedView = async function(name, filters) {
+  const v = { id:'sv'+Date.now(), name, userId: this.user?.id||'', filters };
+  this.savedViews.push(v);
+  if (this.useSheets) Sheets.addSavedView(v);
+  return v;
+};
+
+State.deleteSavedView = async function(id) {
+  this.savedViews = this.savedViews.filter(v => v.id !== id);
+  if (this.useSheets) Sheets.deleteSavedView(id);
+};
+
+/* ─── Time Tracking ─────────────────────────────────────── */
+State.addTimeLog = async function(data) {
+  const log = {
+    id:          'tl'+Date.now(),
+    taskId:      data.taskId,
+    userId:      this.user?.id || '',
+    hours:       Number(data.hours) || 0,
+    description: data.description || '',
+    date:        data.date || new Date().toISOString().slice(0,10),
+    billable:    data.billable !== false,
+  };
+  this.timeLogs.push(log);
+  if (this.useSheets) Sheets.addTimeLog(log);
+  await this.addActivity(data.taskId, `Time logged: ${log.hours}h${log.description ? ' — '+log.description.slice(0,50) : ''}`);
+  return log;
+};
+
+State.deleteTimeLog = async function(id) {
+  this.timeLogs = this.timeLogs.filter(l => l.id !== id);
+  if (this.useSheets) Sheets.deleteTimeLog(id);
+};
+
+State.getTaskTimeLogs = function(taskId) {
+  return this.timeLogs.filter(l => l.taskId === taskId)
+    .sort((a,b) => b.date.localeCompare(a.date));
+};
+
+State.getUserHours = function(userId, month) {
+  return this.timeLogs
+    .filter(l => l.userId === userId && (!month || l.date.startsWith(month)))
+    .reduce((sum, l) => sum + l.hours, 0);
 };

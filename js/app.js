@@ -6,6 +6,7 @@ let currentPage = 'dashboard';
 
 function showPage(pageId, navEl) {
   currentPage = pageId;
+  closeSidebar();
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const page = document.getElementById('page-' + pageId);
@@ -25,13 +26,18 @@ function showPage(pageId, navEl) {
     users:     'Users & roles',
     templates: 'Recurring tasks',
     pipelines: 'Pipelines',
+    settings:  'Settings',
+    close:     'Monthly close',
+    documents: 'Documents',
   };
   const titleEl = document.getElementById('page-title');
   if (titleEl) titleEl.textContent = titles[pageId] || '';
 
-  /* Show search on tasks page */
+  /* Show search + print on tasks page */
   const searchBox = document.getElementById('global-search-box');
   if (searchBox) searchBox.style.display = pageId === 'tasks' ? 'flex' : 'none';
+  const printBtn = document.getElementById('print-btn');
+  if (printBtn) printBtn.style.display = pageId === 'tasks' ? '' : 'none';
 
   /* Re-apply admin-only visibility */
   if (State.user) {
@@ -51,6 +57,9 @@ function refreshCurrentPage() {
     case 'users':     renderUsers();          break;
     case 'templates': renderTemplates();      break;
     case 'pipelines': renderPipelinesPage();  break;
+    case 'settings':  renderSettings();        break;
+    case 'close':     renderClosePage();      break;
+    case 'documents': renderDocuments();      break;
   }
 }
 
@@ -185,21 +194,57 @@ function logout() {
   renderUserSelectList();
 }
 
+/* ── Mobile sidebar ─────────────────────────────────────── */
+function toggleSidebar() {
+  const sidebar  = document.querySelector('.sidebar');
+  const overlay  = document.getElementById('sidebar-overlay');
+  const isOpen   = sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('visible', !isOpen);
+}
+
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('visible');
+}
+
+/* ── Keyboard shortcut modal ────────────────────────────── */
+function openShortcutModal()  { document.getElementById('shortcut-modal').classList.add('open'); }
+function closeShortcutModal() { document.getElementById('shortcut-modal').classList.remove('open'); }
+
 /* ── Keyboard shortcuts ─────────────────────────────────── */
 document.addEventListener('keydown', e => {
+  const inInput = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    closeSidebar();
   }
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
     e.preventDefault();
     if (State.user?.role === 'admin') openNewTaskModal();
   }
+  if (e.key === '?' && !inInput && !e.ctrlKey && !e.metaKey && State.user) {
+    openShortcutModal();
+  }
+  if (e.key === 'r' && !inInput && !e.ctrlKey && !e.metaKey && State.user) {
+    refreshCurrentPage();
+  }
 });
 
-/* ── Click outside modal ────────────────────────────────── */
+/* ── Click outside modal / colour picker ────────────────── */
 document.addEventListener('click', e => {
   if (e.target.classList.contains('modal-overlay')) {
     e.target.classList.remove('open');
+  }
+  /* Close stage colour picker if click is outside it */
+  const picker = document.getElementById('stage-color-picker');
+  if (picker && picker.style.display !== 'none') {
+    if (!picker.contains(e.target) &&
+        !e.target.classList.contains('stage-color-dot') &&
+        !e.target.classList.contains('stage-color-btn') &&
+        !e.target.classList.contains('stage-color-preview')) {
+      closeStageColorPicker();
+    }
   }
 });
 

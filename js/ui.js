@@ -12,7 +12,23 @@ function toast(msg, type = 'success') {
   setTimeout(() => { el.classList.add('hiding'); setTimeout(() => el.remove(), 200); }, 3200);
 }
 
+/* ── HTML escape ────────────────────────────────────────── */
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 /* ── Date formatter ─────────────────────────────────────── */
+const _MONTHS = ['January','February','March','April','May','June',
+                 'July','August','September','October','November','December'];
+
+/* Returns "June 2026" — consistent regardless of browser locale */
+function _monthLabel(yearMonth) {
+  const [y, m] = yearMonth.split('-');
+  return `${_MONTHS[parseInt(m, 10) - 1]} ${y}`;
+}
+
 function fmtDate(d) {
   if (!d) return '—';
   const dt = new Date(d + 'T00:00:00');
@@ -63,30 +79,50 @@ function renderTaskCard(task) {
   const canClose = State.user?.role !== 'viewer';
   const canEdit  = State.user?.role === 'admin';
 
+  const hasNotes    = task.notes && task.notes.trim();
+  const isBlocked   = State.isBlocked(task.id);
+  const subtasks    = task.subtasks || [];
+  const stDone      = subtasks.filter(s => s.done).length;
+  const stTotal     = subtasks.length;
+  const hasSubtasks = stTotal > 0;
+
   return `
-  <div class="task-card ${done ? 'done' : ''} ${over ? 'overdue' : ''}"
-       data-id="${task.id}" onclick="openTaskModal('${task.id}')">
-    <div class="task-row">
+  <div class="task-card ${done ? 'done' : ''} ${over ? 'overdue' : ''} ${isBlocked ? 'blocked' : ''} ${selectMode && selectedTasks.has(task.id) ? 'task-selected' : ''}"
+       data-id="${task.id}"
+       onclick="${selectMode ? `toggleTaskSelect('${task.id}')` : `openTaskModal('${task.id}')`}">
+
+    <div class="tc-top">
+      ${selectMode ? `<div class="tc-select-box ${selectedTasks.has(task.id) ? 'checked' : ''}"
+        onclick="event.stopPropagation();toggleTaskSelect('${task.id}')">
+        <i class="ti ti-check" style="font-size:9px"></i>
+      </div>` : ''}
       <div class="task-check ${done ? 'checked' : ''}"
            onclick="event.stopPropagation();${done ? '' : canClose ? `quickClose('${task.id}')` : ''}"
            title="${done ? 'Completed' : canClose ? 'Mark done' : 'Read only'}">
         ${done ? '<i class="ti ti-check" style="font-size:9px"></i>' : ''}
       </div>
-      <div class="task-body">
-        <div class="task-title">${task.title}</div>
-        <div class="task-meta">
-          ${clientTag(task.clientId)}
-          ${typeTag(task.type)}
-          ${statusTag(task.status, task.dueDate)}
-          ${priorityTag(task.priority)}
-          <span class="task-due ${over ? 'late' : ''}">
-            <i class="ti ti-calendar-event" style="font-size:10px;vertical-align:-1px"></i>
-            ${fmtDate(task.dueDate)}
-          </span>
-        </div>
+      <div class="task-title">${esc(task.title)}</div>
+      ${assigneeChip(task.assigneeId)}
+    </div>
+
+    ${hasNotes ? `<div class="tc-note">${esc(task.notes)}</div>` : ''}
+
+    <div class="tc-bottom">
+      <div class="task-meta">
+        ${clientTag(task.clientId)}
+        ${typeTag(task.type)}
+        ${priorityTag(task.priority)}
+        ${statusTag(task.status, task.dueDate)}
+        ${hasSubtasks ? `<span class="tc-st-badge ${stDone===stTotal?'complete':''}">✓ ${stDone}/${stTotal}</span>` : ''}
+        ${isBlocked ? `<span class="tc-st-badge" style="background:var(--bg);color:var(--ink-3);border:1px solid var(--border-md)">
+          <i class="ti ti-lock" style="font-size:9px"></i> Blocked
+        </span>` : ''}
       </div>
-      <div class="task-actions-col">
-        ${assigneeChip(task.assigneeId)}
+      <div class="tc-right">
+        <span class="task-due ${over ? 'late' : ''}">
+          <i class="ti ti-calendar-event" style="font-size:10px;vertical-align:-1px"></i>
+          ${fmtDate(task.dueDate)}
+        </span>
         ${!done && canClose
           ? `<button class="btn btn-success btn-sm"
                onclick="event.stopPropagation();openTaskModal('${task.id}','close')">
@@ -95,8 +131,25 @@ function renderTaskCard(task) {
           : ''}
       </div>
     </div>
+
   </div>`;
 }
+
+/* ── State vars ─────────────────────────────────────────── */
+let editUserId          = null;
+let editClientSettingsId = null;
+let selectMode          = false;
+const selectedTasks     = new Set();
+let calendarView        = false;
+let _calYear            = null;
+let _calMonth           = null;
+
+/* ── Stage colour palette ───────────────────────────────── */
+const STAGE_COLORS = [
+  '#0d7a6b','#1a5fb4','#5b3fa6','#c0392b',
+  '#b7691a','#1e6f3e','#c2185b','#546e7a',
+];
+let _colorPickerTarget = null;
 
 /* ── Task list renderer ─────────────────────────────────── */
 function renderTaskList(tasks, containerId) {
@@ -139,16 +192,161 @@ function renderDashboard() {
     el.textContent  = od || '';
     el.style.display = od ? '' : 'none';
   });
+
+  /* Pipeline overdue badge */
+  const today2 = new Date().toISOString().slice(0,10);
+  const pipeOD = State.tasks.filter(t => t.pipelineId && t.status !== 'done' && t.dueDate < today2).length;
+  const pb = document.getElementById('badge-pipelines');
+  if (pb) { pb.textContent = pipeOD ? String(pipeOD) : '!'; pb.style.display = pipeOD ? '' : 'none'; }
+
+  renderCompletionChart();
+  renderWorkload();
+
+  /* Documents expiry badge in sidebar */
+  const expDocs = State.expiringDocuments(30).length;
+  const db = document.getElementById('badge-documents');
+  if (db) { db.textContent = expDocs || ''; db.style.display = expDocs ? '' : 'none'; }
+}
+
+/* ── Completion bar chart (canvas) ──────────────────────── */
+function renderCompletionChart() {
+  const canvas = document.getElementById('completion-chart');
+  if (!canvas) return;
+  requestAnimationFrame(() => _drawChart(canvas));
+}
+
+function _drawChart(canvas) {
+  const month = new Date().toISOString().slice(0, 7);
+  const data  = State.clients.map(c => ({
+    label: c.short,
+    color: c.color,
+    count: State.tasks.filter(t =>
+      t.clientId === c.id && t.status === 'done' &&
+      t.closedAt && String(t.closedAt).startsWith(month)
+    ).length,
+  }));
+
+  const maxVal = Math.max(...data.map(d => d.count), 1);
+  const parent = canvas.parentElement;
+  const W      = parent ? Math.max(parent.clientWidth - 44, 200) : 600;
+  const H      = 150;
+  const dpr    = window.devicePixelRatio || 1;
+
+  canvas.width        = W * dpr;
+  canvas.height       = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const n      = data.length;
+  const pad    = 20;
+  const gap    = (W - pad * 2) / n;
+  const barW   = Math.max(Math.floor(gap * 0.45), 14);
+  const maxH   = H - 42;
+  const baseY  = H - 22;
+
+  /* Baseline */
+  ctx.fillStyle = '#e8e5df';
+  ctx.fillRect(pad, baseY, W - pad * 2, 1);
+
+  data.forEach((d, i) => {
+    const cx   = pad + gap * i + gap / 2;
+    const barH = Math.max(Math.round(d.count / maxVal * maxH), d.count > 0 ? 3 : 0);
+    const x    = Math.round(cx - barW / 2);
+    const y    = baseY - barH;
+
+    /* Track */
+    ctx.fillStyle = '#f0ede8';
+    ctx.fillRect(x, baseY - maxH, barW, maxH);
+
+    /* Bar */
+    if (barH > 0) {
+      ctx.fillStyle = d.color + 'bb';
+      ctx.fillRect(x, y, barW, barH);
+      ctx.fillStyle = d.color;
+      ctx.fillRect(x, y, barW, 2);
+    }
+
+    /* Count */
+    if (d.count > 0) {
+      ctx.font      = '600 11px "Geist Mono",monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = d.color;
+      ctx.fillText(String(d.count), cx, y - 5);
+    }
+
+    /* Label */
+    ctx.font      = '10px "Geist Mono",monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#a8a49e';
+    ctx.fillText(d.label, cx, baseY + 15);
+  });
 }
 
 /* ── All tasks page ─────────────────────────────────────── */
-let taskFilter = { status:'all', type:'all', clientId:'all', search:'' };
+let taskFilter    = { status:'all', type:'all', clientId:'all', assigneeId:'all', search:'' };
+let groupByClient = false;
 
 function renderAllTasks() {
   const tasks = State.filterTasks(taskFilter);
-  renderTaskList(tasks, 'all-task-list');
-  const lbl = document.getElementById('task-count-label');
+  const lbl   = document.getElementById('task-count-label');
   if (lbl) lbl.textContent = `${tasks.length} task${tasks.length !== 1 ? 's' : ''}`;
+  renderSavedViews();
+
+  if (groupByClient) {
+    _renderTasksGrouped(tasks);
+  } else {
+    renderTaskList(tasks, 'all-task-list');
+  }
+}
+
+function _renderTasksGrouped(tasks) {
+  const el = document.getElementById('all-task-list');
+  if (!el) return;
+  if (!tasks.length) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-clipboard-list"></i><p>No tasks found</p></div>`;
+    return;
+  }
+
+  /* Build groups preserving client order from State.clients */
+  const grouped = {};
+  tasks.forEach(t => { (grouped[t.clientId] = grouped[t.clientId] || []).push(t); });
+
+  const orderedClients = State.clients.filter(c => grouped[c.id]);
+
+  el.innerHTML = orderedClients.map(c => {
+    const clientTasks = grouped[c.id];
+    return `
+      <div style="margin-bottom:22px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;
+          padding-bottom:8px;border-bottom:2px solid ${c.color}22">
+          <span style="width:9px;height:9px;border-radius:50%;background:${c.color};flex-shrink:0"></span>
+          <span style="font-size:11px;font-weight:600;color:var(--ink-2);
+            text-transform:uppercase;letter-spacing:0.7px">${c.name}</span>
+          <span style="font-size:10px;font-family:var(--mono);color:var(--ink-4);
+            background:var(--bg);border:1px solid var(--border);
+            border-radius:20px;padding:0 6px">${clientTasks.length}</span>
+        </div>
+        <div class="task-list">${clientTasks.map(renderTaskCard).join('')}</div>
+      </div>`;
+  }).join('');
+}
+
+function toggleGroupByClient() {
+  groupByClient = !groupByClient;
+  const btn = document.getElementById('group-toggle-btn');
+  if (btn) {
+    btn.innerHTML = groupByClient
+      ? '<i class="ti ti-layout-list"></i> Ungroup'
+      : '<i class="ti ti-layout-rows"></i> Group by client';
+    btn.style.background      = groupByClient ? 'var(--ink)'        : '';
+    btn.style.color           = groupByClient ? 'var(--bg-sidebar)' : '';
+    btn.style.borderColor     = groupByClient ? 'var(--ink)'        : '';
+  }
+  renderAllTasks();
 }
 
 function setFilter(key, val, el) {
@@ -203,7 +401,11 @@ function openNewClientModal() {
 }
 
 function closeClientForm() {
-  document.getElementById('client-form-modal').classList.remove('open');
+  editClientSettingsId = null;
+  const modal = document.getElementById('client-form-modal');
+  modal.querySelector('.modal-title').textContent = 'New client';
+  modal.querySelector('.btn-primary').innerHTML   = '<i class="ti ti-circle-check"></i> Add client';
+  modal.classList.remove('open');
 }
 
 function hexToRgba(hex, alpha) {
@@ -226,40 +428,36 @@ async function submitClientForm() {
     toast('Short code must be at least 2 letters', 'error');
     return;
   }
-  if (State.clients.find(c => c.short === short)) {
-    toast(`Short code "${short}" is already used`, 'error');
-    return;
-  }
+  const dup = State.clients.find(c => c.short === short && c.id !== editClientSettingsId);
+  if (dup) { toast(`Short code "${short}" is already used`, 'error'); return; }
 
   const saveBtn = document.querySelector('#client-form-modal .btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
   const bg = hexToRgba(color, 0.12);
-  const newClient = {
-    id:     'c' + Date.now(),
-    name,
-    short,
-    color,
-    bg,
-    active: true,
-  };
 
-  State.clients.push(newClient);
-
-  /* Write to Google Sheets Clients tab */
-  if (State.useSheets) {
-    await Sheets._post({
-      action: 'append',
-      tab:    'Clients',
-      row:    [newClient.id, newClient.name, newClient.short, newClient.color, newClient.bg, 'true'],
-    });
+  if (editClientSettingsId) {
+    await State.updateClient(editClientSettingsId, { name, short, color, bg });
+    if (saveBtn) { saveBtn.disabled = false; }
+    closeClientForm();
+    renderSettingsClients();
+    populateFormDropdowns();
+    renderClients();
+    toast('Client updated!');
+  } else {
+    const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true };
+    State.clients.push(newClient);
+    if (State.useSheets) {
+      await Sheets._post({ action:'append', tab:'Clients',
+        row:[newClient.id, newClient.name, newClient.short, newClient.color, newClient.bg, 'true'] });
+    }
+    if (saveBtn) { saveBtn.disabled = false; }
+    closeClientForm();
+    populateFormDropdowns();
+    renderClients();
+    if (typeof currentPage !== 'undefined' && currentPage === 'settings') renderSettingsClients();
+    toast(`Client "${name}" added!`);
   }
-
-  if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="ti ti-circle-check"></i> Add client'; }
-  closeClientForm();
-  populateFormDropdowns();
-  renderClients();
-  toast(`Client "${name}" added!`);
 }
 
 /* ── Users page ─────────────────────────────────────────── */
@@ -284,33 +482,56 @@ function renderUsers() {
 
 /* ── Templates page ─────────────────────────────────────── */
 function renderTemplates() {
+  /* Set default month on the generate bar */
+  const tgMonth = document.getElementById('tg-month');
+  if (tgMonth && !tgMonth.value) {
+    tgMonth.value = new Date().toISOString().slice(0, 7);
+  }
   const el = document.getElementById('template-list');
   if (!el) return;
+  if (!State.templates.length) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-repeat"></i><p>No recurring templates yet</p></div>`;
+    return;
+  }
+  const isAdmin = State.user?.role === 'admin';
   el.innerHTML = State.templates.map(tp => {
     const client   = State.getClient(tp.clientId);
-    const recLabel = { daily:'Every day', weekly:`Every ${tp.dayOfWeek||'Mon'}`, monthly:`Day ${tp.dayOfMonth} of each month` };
+    const recLabel = {
+      daily:   'Every day',
+      weekly:  `Every ${tp.dayOfWeek || 'Mon'}`,
+      monthly: tp.dayOfMonth ? `Day ${tp.dayOfMonth} of each month` : 'Monthly',
+    };
     return `
     <div class="task-card" style="cursor:default">
-      <div class="task-row">
-        <div style="color:var(--ink-3);flex-shrink:0;font-size:16px;margin-top:1px">
+      <div class="tc-top">
+        <div style="color:var(--accent);flex-shrink:0;font-size:15px;
+          background:var(--accent-light);border-radius:var(--radius-sm);
+          width:28px;height:28px;display:flex;align-items:center;justify-content:center">
           <i class="ti ti-repeat"></i>
         </div>
-        <div class="task-body">
-          <div class="task-title">${tp.title}</div>
-          <div class="task-meta">
-            ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
-            <span class="tag tag-${tp.recurrence}">${tp.recurrence.charAt(0).toUpperCase()+tp.recurrence.slice(1)}</span>
-            <span style="font-size:11px;color:var(--ink-3)">${recLabel[tp.recurrence]||''}</span>
-          </div>
+        <div class="task-title">${tp.title}</div>
+        ${assigneeChip(tp.assigneeId)}
+      </div>
+      <div class="tc-bottom">
+        <div class="task-meta">
+          ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
+          <span class="tag tag-${tp.recurrence}">${tp.recurrence.charAt(0).toUpperCase()+tp.recurrence.slice(1)}</span>
+          <span style="font-size:11px;color:var(--ink-3)">${recLabel[tp.recurrence] || ''}</span>
         </div>
-        <div class="task-actions-col">
-          ${assigneeChip(tp.assigneeId)}
-          <span style="font-size:10.5px;padding:3px 9px;border-radius:20px;font-weight:600;
+        <div class="tc-right">
+          <span style="font-size:10.5px;padding:2px 9px;border-radius:20px;font-weight:600;flex-shrink:0;
             ${tp.active
               ? 'background:var(--green-light);color:var(--green)'
               : 'background:var(--bg);color:var(--ink-3);border:1px solid var(--border-md)'}">
             ${tp.active ? 'Active' : 'Paused'}
           </span>
+          ${isAdmin ? `
+          <button class="btn btn-ghost btn-sm" onclick="openEditTemplateModal('${tp.id}')">
+            <i class="ti ti-edit"></i>
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDeleteTemplate('${tp.id}')">
+            <i class="ti ti-trash"></i>
+          </button>` : ''}
         </div>
       </div>
     </div>`;
@@ -331,7 +552,10 @@ function openTaskModal(taskId, tab) {
   const canEdit  = State.user?.role === 'admin';
   const done     = task.status === 'done';
 
-  document.getElementById('modal-task-title').textContent = task.title;
+  document.getElementById('modal-task-title').textContent = task.title; /* textContent auto-escapes */
+
+  const pipeline = task.pipelineId ? State.getPipeline(task.pipelineId) : null;
+  const stage    = task.pipelineStageId ? State.stages.find(s => s.id === task.pipelineStageId) : null;
 
   document.getElementById('modal-task-body').innerHTML = `
     <div class="detail-meta">
@@ -359,24 +583,49 @@ function openTaskModal(taskId, tab) {
         <label>Status</label>
         <span>${statusTag(task.status, task.dueDate)}</span>
       </div>
+      ${pipeline ? `
+      <div class="detail-meta-item" style="grid-column:1/-1">
+        <label>Pipeline</label>
+        <span style="display:flex;align-items:center;gap:6px">
+          <i class="ti ti-layout-kanban" style="font-size:12px;color:var(--ink-3)"></i>
+          ${pipeline.name}
+          ${stage ? `<i class="ti ti-chevron-right" style="font-size:11px;color:var(--ink-4)"></i>
+          ${stage.color ? `<span style="width:8px;height:8px;border-radius:50%;background:${stage.color};display:inline-block"></span>` : ''}
+          ${stage.name}` : ''}
+        </span>
+      </div>` : ''}
     </div>
 
     ${task.notes ? `
       <p style="font-size:13px;color:var(--ink-2);margin-bottom:18px;line-height:1.65;
         padding:12px 14px;background:var(--bg);border-radius:var(--radius-sm);
-        border-left:2px solid var(--border-md)">${task.notes}</p>` : ''}
+        border-left:2px solid var(--border-md)">${esc(task.notes)}</p>` : ''}
+
+    ${_renderChecklistSection(task, canClose)}
+    ${_renderDependenciesSection(task, canEdit)}
+    ${_renderTimeLogSection(task, canClose)}
 
     ${comments.length ? `
       <div class="section-title" style="margin-bottom:12px">Comments</div>
       <div class="comment-thread">
         ${comments.map(cm => {
           const u = State.getUser(cm.userId);
-          return `<div class="comment-item">
+          const canEdit = State.user?.role === 'admin' || cm.userId === State.user?.id;
+          return `<div class="comment-item" id="cm-item-${cm.id}">
             <div class="avatar ${u?.avClass||'av-admin'}" style="width:26px;height:26px;font-size:9px;flex-shrink:0">${u?.initials||'?'}</div>
-            <div class="comment-body">
-              <span class="comment-who">${u?.name||'Unknown'}</span>
-              <span class="comment-when">${cm.createdAt}</span>
-              <div class="comment-text">${cm.text}</div>
+            <div class="comment-body" style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div>
+                  <span class="comment-who">${u?.name||'Unknown'}</span>
+                  <span class="comment-when">${cm.createdAt}</span>
+                </div>
+                ${canEdit ? `<button class="btn btn-ghost btn-sm"
+                  style="padding:2px 7px;font-size:11px;flex-shrink:0"
+                  onclick="editComment('${cm.id}')">
+                  <i class="ti ti-pencil" style="font-size:11px"></i> Edit
+                </button>` : ''}
+              </div>
+              <div class="comment-text" id="cm-text-${cm.id}">${esc(cm.text)}</div>
             </div>
           </div>`;
         }).join('')}
@@ -418,6 +667,8 @@ function openTaskModal(taskId, tab) {
           </button>
         </div>
       </div>` : ''}
+
+    ${_renderActivitySection(task.id)}
   `;
 
   document.getElementById('modal-task-footer').innerHTML = `
@@ -470,6 +721,46 @@ async function submitComment() {
   openTaskModal(activeTaskId);
 }
 
+function editComment(commentId) {
+  const cm = State.comments.find(c => c.id === commentId);
+  if (!cm) return;
+  const textEl = document.getElementById(`cm-text-${commentId}`);
+  if (!textEl) return;
+  textEl.innerHTML = `
+    <textarea class="form-textarea" id="cm-edit-${commentId}"
+      style="height:64px;margin-top:5px;font-size:13px">${esc(cm.text)}</textarea>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:7px">
+      <button class="btn btn-ghost btn-sm" onclick="cancelCommentEdit('${commentId}')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveCommentEdit('${commentId}')">
+        <i class="ti ti-check"></i> Save
+      </button>
+    </div>`;
+  document.getElementById(`cm-edit-${commentId}`)?.focus();
+}
+
+function cancelCommentEdit(commentId) {
+  const cm = State.comments.find(c => c.id === commentId);
+  if (!cm) return;
+  const textEl = document.getElementById(`cm-text-${commentId}`);
+  if (textEl) textEl.innerHTML = esc(cm.text);
+}
+
+async function saveCommentEdit(commentId) {
+  const textarea = document.getElementById(`cm-edit-${commentId}`);
+  if (!textarea) return;
+  const text = textarea.value.trim();
+  if (!text) { toast('Comment cannot be empty', 'error'); return; }
+
+  const saveBtn = textarea.nextElementSibling?.querySelector('.btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<i class="ti ti-loader"></i>'; }
+
+  await State.updateComment(commentId, text);
+
+  const textEl = document.getElementById(`cm-text-${commentId}`);
+  if (textEl) textEl.innerHTML = esc(text);
+  toast('Comment updated');
+}
+
 async function quickClose(taskId) {
   await State.closeTask(taskId, '');
   toast('Task marked as done!');
@@ -491,6 +782,8 @@ function openNewTaskModal() {
   editTaskId = null;
   document.getElementById('task-form-title').textContent = 'New task';
   document.getElementById('task-form').reset();
+  const ps = document.getElementById('tf-pipeline');
+  if (ps) { ps.value = ''; onPipelineSelectChange(''); }
   document.getElementById('task-form-modal').classList.add('open');
 }
 
@@ -507,6 +800,13 @@ function openEditModal(taskId) {
   document.getElementById('tf-priority').value = task.priority;
   document.getElementById('tf-due').value      = task.dueDate;
   document.getElementById('tf-notes').value    = task.notes || '';
+  const ps = document.getElementById('tf-pipeline');
+  if (ps) {
+    ps.value = task.pipelineId || '';
+    onPipelineSelectChange(task.pipelineId || '');
+    const ss = document.getElementById('tf-stage');
+    if (ss && task.pipelineStageId) ss.value = task.pipelineStageId;
+  }
   document.getElementById('task-form-modal').classList.add('open');
 }
 
@@ -523,6 +823,8 @@ async function submitTaskForm() {
   const priority   = document.getElementById('tf-priority').value;
   const dueDate    = document.getElementById('tf-due').value;
   const notes      = document.getElementById('tf-notes').value.trim();
+  const pipelineId      = document.getElementById('tf-pipeline')?.value || null;
+  const pipelineStageId = (pipelineId && document.getElementById('tf-stage')?.value) || null;
 
   if (!title || !clientId || !assigneeId || !dueDate) {
     toast('Please fill in all required fields', 'error'); return;
@@ -532,10 +834,12 @@ async function submitTaskForm() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
   if (editTaskId) {
-    await State.updateTask(editTaskId, { title, clientId, assigneeId, type, priority, dueDate, notes });
+    await State.updateTask(editTaskId, { title, clientId, assigneeId, type, priority, dueDate, notes,
+      pipelineId: pipelineId || null, pipelineStageId: pipelineStageId || null });
     toast('Task updated!');
   } else {
-    await State.addTask({ title, clientId, assigneeId, type, priority, dueDate, notes, status:'pending' });
+    await State.addTask({ title, clientId, assigneeId, type, priority, dueDate, notes, status:'pending',
+      pipelineId: pipelineId || null, pipelineStageId: pipelineStageId || null });
     toast('Task created!');
   }
 
@@ -549,6 +853,7 @@ function populateFormDropdowns() {
   const clientSel   = document.getElementById('tf-client');
   const assigneeSel = document.getElementById('tf-assignee');
   const filterSel   = document.getElementById('filter-client-select');
+  const pipelineSel = document.getElementById('tf-pipeline');
 
   clientSel.innerHTML = `<option value="">Select client…</option>` +
     State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
@@ -561,6 +866,444 @@ function populateFormDropdowns() {
       State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     filterSel.onchange = e => { taskFilter.clientId = e.target.value; renderAllTasks(); };
   }
+
+  const assigneeFilterSel = document.getElementById('filter-assignee-select');
+  if (assigneeFilterSel) {
+    assigneeFilterSel.innerHTML = `<option value="all">All users</option>` +
+      State.users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+    assigneeFilterSel.onchange = e => { taskFilter.assigneeId = e.target.value; renderAllTasks(); };
+  }
+
+  if (pipelineSel) {
+    pipelineSel.innerHTML = `<option value="">No pipeline</option>` +
+      State.pipelines.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    onPipelineSelectChange(pipelineSel.value);
+  }
+}
+
+function onPipelineSelectChange(pipelineId) {
+  const stageSel   = document.getElementById('tf-stage');
+  const stageGroup = document.getElementById('tf-stage-group');
+  if (!stageSel) return;
+  if (!pipelineId) {
+    stageSel.innerHTML = '<option value="">—</option>';
+    if (stageGroup) stageGroup.style.opacity = '0.4';
+    return;
+  }
+  const stages = State.getStages(pipelineId);
+  stageSel.innerHTML = stages.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  if (stageGroup) stageGroup.style.opacity = '1';
+}
+
+/* ── Recurring template modal ───────────────────────────── */
+let editTemplateId = null;
+
+function _populateTemplateLists() {
+  document.getElementById('tmf-client').innerHTML =
+    `<option value="">Select client…</option>` +
+    State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('tmf-assignee').innerHTML =
+    `<option value="">Assign to…</option>` +
+    State.users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+}
+
+function openNewTemplateModal() {
+  editTemplateId = null;
+  document.querySelector('#template-form-modal .modal-title').textContent = 'New recurring template';
+  document.getElementById('tmf-title').value      = '';
+  document.getElementById('tmf-recurrence').value = 'monthly';
+  document.getElementById('tmf-day-month').value  = '';
+  document.getElementById('tmf-day-week').value   = 'Mon';
+  _populateTemplateLists();
+  onTemplateRecurrenceChange('monthly');
+  document.getElementById('template-form-modal').classList.add('open');
+  setTimeout(() => document.getElementById('tmf-title').focus(), 100);
+}
+
+function openEditTemplateModal(templateId) {
+  editTemplateId = templateId;
+  const tp = State.templates.find(t => t.id === templateId);
+  if (!tp) return;
+  document.querySelector('#template-form-modal .modal-title').textContent = 'Edit template';
+  _populateTemplateLists();
+  document.getElementById('tmf-title').value      = tp.title;
+  document.getElementById('tmf-client').value     = tp.clientId;
+  document.getElementById('tmf-assignee').value   = tp.assigneeId;
+  document.getElementById('tmf-recurrence').value = tp.recurrence;
+  onTemplateRecurrenceChange(tp.recurrence);
+  if (tp.recurrence === 'monthly') document.getElementById('tmf-day-month').value = tp.dayOfMonth || '';
+  if (tp.recurrence === 'weekly')  document.getElementById('tmf-day-week').value  = tp.dayOfWeek  || 'Mon';
+  document.getElementById('template-form-modal').classList.add('open');
+}
+
+function closeTemplateModal() {
+  document.getElementById('template-form-modal').classList.remove('open');
+  editTemplateId = null;
+}
+
+function onTemplateRecurrenceChange(val) {
+  const dayGroup = document.getElementById('tmf-day-group');
+  const monthInp = document.getElementById('tmf-day-month');
+  const weekSel  = document.getElementById('tmf-day-week');
+  const dayLabel = document.getElementById('tmf-day-label');
+  if (val === 'daily') {
+    dayGroup.style.display = 'none';
+  } else if (val === 'weekly') {
+    dayGroup.style.display = '';
+    monthInp.style.display = 'none';
+    weekSel.style.display  = '';
+    dayLabel.textContent   = 'Day of week';
+  } else {
+    dayGroup.style.display = '';
+    monthInp.style.display = '';
+    weekSel.style.display  = 'none';
+    dayLabel.textContent   = 'Day of month';
+  }
+}
+
+async function submitTemplateForm() {
+  const title      = document.getElementById('tmf-title').value.trim();
+  const clientId   = document.getElementById('tmf-client').value;
+  const assigneeId = document.getElementById('tmf-assignee').value;
+  const recurrence = document.getElementById('tmf-recurrence').value;
+  const dayOfMonth = recurrence === 'monthly' ? (Number(document.getElementById('tmf-day-month').value) || null) : null;
+  const dayOfWeek  = recurrence === 'weekly'  ? document.getElementById('tmf-day-week').value : null;
+
+  if (!title || !clientId || !assigneeId) {
+    toast('Please fill in title, client and assignee', 'error'); return;
+  }
+
+  const btn = document.querySelector('#template-form-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+
+  if (editTemplateId) {
+    await State.updateTemplate(editTemplateId, { title, clientId, assigneeId, recurrence, dayOfMonth, dayOfWeek });
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
+    closeTemplateModal();
+    renderTemplates();
+    toast('Template updated!');
+  } else {
+    await State.addTemplate({ title, clientId, assigneeId, recurrence, dayOfMonth, dayOfWeek });
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
+    closeTemplateModal();
+    renderTemplates();
+    toast(`Template "${title}" created!`);
+  }
+}
+
+async function confirmDeleteTemplate(templateId) {
+  const tp = State.templates.find(t => t.id === templateId);
+  if (!tp) return;
+  if (!confirm(`Delete template "${tp.title}"? This cannot be undone.`)) return;
+  await State.deleteTemplate(templateId);
+  renderTemplates();
+  toast(`Template deleted`, 'error');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DARK MODE
+   ═══════════════════════════════════════════════════════════ */
+function toggleDarkMode() {
+  document.body.classList.toggle('dark');
+  const btn    = document.getElementById('dark-btn');
+  const isDark = document.body.classList.contains('dark');
+  if (btn) btn.innerHTML = isDark
+    ? '<i class="ti ti-sun"></i>'
+    : '<i class="ti ti-moon"></i>';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXPORT / PRINT
+   ═══════════════════════════════════════════════════════════ */
+function printTasks() {
+  document.title = 'OFIZ Tasks — ' + (document.getElementById('task-count-label')?.textContent || 'Export');
+  window.print();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BULK OPERATIONS
+   ═══════════════════════════════════════════════════════════ */
+function toggleSelectMode() {
+  selectMode = !selectMode;
+  if (!selectMode) { selectedTasks.clear(); updateBulkBar(); }
+  const btn = document.getElementById('sel-mode-btn');
+  if (btn) {
+    btn.innerHTML    = `<i class="ti ti-checkbox"></i> ${selectMode ? 'Done' : 'Select'}`;
+    btn.style.background  = selectMode ? 'var(--ink)' : '';
+    btn.style.color       = selectMode ? 'var(--bg-sidebar)' : '';
+    btn.style.borderColor = selectMode ? 'var(--ink)' : '';
+  }
+  renderAllTasks();
+}
+
+function toggleTaskSelect(taskId) {
+  if (selectedTasks.has(taskId)) selectedTasks.delete(taskId);
+  else selectedTasks.add(taskId);
+  updateBulkBar();
+  renderAllTasks();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-action-bar');
+  const cnt = selectedTasks.size;
+  if (!bar) return;
+  bar.style.display = cnt > 0 ? 'flex' : 'none';
+  const lbl = document.getElementById('bulk-count');
+  if (lbl) lbl.textContent = `${cnt} task${cnt !== 1 ? 's' : ''} selected`;
+  const sel = document.getElementById('bulk-reassign-sel');
+  if (sel) {
+    sel.innerHTML = `<option value="">Reassign to…</option>` +
+      State.users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  }
+}
+
+function clearBulkSelection() {
+  selectedTasks.clear();
+  selectMode = false;
+  updateBulkBar();
+  const btn = document.getElementById('sel-mode-btn');
+  if (btn) { btn.innerHTML = '<i class="ti ti-checkbox"></i> Select'; btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; }
+  renderAllTasks();
+}
+
+async function bulkClose() {
+  if (!selectedTasks.size) return;
+  if (!confirm(`Mark ${selectedTasks.size} tasks as done?`)) return;
+  for (const id of [...selectedTasks]) await State.closeTask(id, '');
+  toast(`${selectedTasks.size} tasks marked done`);
+  clearBulkSelection();
+  refreshCurrentPage();
+}
+
+async function bulkDelete() {
+  if (!selectedTasks.size) return;
+  if (!confirm(`Delete ${selectedTasks.size} tasks? This cannot be undone.`)) return;
+  for (const id of [...selectedTasks]) await State.deleteTask(id);
+  toast(`${selectedTasks.size} tasks deleted`, 'error');
+  clearBulkSelection();
+  refreshCurrentPage();
+}
+
+async function bulkReassign(userId) {
+  if (!userId || !selectedTasks.size) return;
+  const user = State.getUser(userId);
+  for (const id of [...selectedTasks]) await State.updateTask(id, { assigneeId: userId });
+  toast(`${selectedTasks.size} tasks reassigned to ${user?.name}`);
+  document.getElementById('bulk-reassign-sel').value = '';
+  clearBulkSelection();
+  refreshCurrentPage();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CALENDAR VIEW
+   ═══════════════════════════════════════════════════════════ */
+function toggleCalendarView() {
+  calendarView = !calendarView;
+  const btn  = document.getElementById('cal-toggle-btn');
+  const wrap = document.getElementById('calendar-wrap');
+  const list = document.getElementById('all-task-list');
+  if (btn) {
+    btn.innerHTML     = calendarView ? '<i class="ti ti-list"></i> List' : '<i class="ti ti-calendar"></i> Calendar';
+    btn.style.background  = calendarView ? 'var(--ink)' : '';
+    btn.style.color       = calendarView ? 'var(--bg-sidebar)' : '';
+    btn.style.borderColor = calendarView ? 'var(--ink)' : '';
+  }
+  if (wrap) wrap.style.display = calendarView ? '' : 'none';
+  if (list) list.style.display = calendarView ? 'none' : '';
+  if (calendarView) {
+    if (!_calYear) { const n = new Date(); _calYear = n.getFullYear(); _calMonth = n.getMonth(); }
+    renderCalendar();
+  }
+}
+
+function calNav(dir) {
+  if (!_calYear) { const n = new Date(); _calYear = n.getFullYear(); _calMonth = n.getMonth(); }
+  if (dir === 0) { const n = new Date(); _calYear = n.getFullYear(); _calMonth = n.getMonth(); }
+  else {
+    _calMonth += dir;
+    if (_calMonth < 0)  { _calMonth = 11; _calYear--; }
+    if (_calMonth > 11) { _calMonth = 0;  _calYear++; }
+  }
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const grid = document.getElementById('cal-grid');
+  const lbl  = document.getElementById('cal-month-label');
+  if (!grid || _calYear === null) return;
+  if (lbl) lbl.textContent = _MONTHS[_calMonth] + ' ' + _calYear;
+
+  const today    = new Date().toISOString().slice(0,10);
+  const tasks    = State.filterTasks(taskFilter);
+  const taskMap  = {};
+  tasks.forEach(t => { if (t.dueDate) (taskMap[t.dueDate] = taskMap[t.dueDate] || []).push(t); });
+
+  const firstDay    = new Date(_calYear, _calMonth, 1);
+  const lastDay     = new Date(_calYear, _calMonth + 1, 0);
+  let   startOffset = firstDay.getDay() - 1;
+  if (startOffset < 0) startOffset = 6;
+
+  const DAY_HEADS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let html = DAY_HEADS.map(d => `<div class="cal-head-cell">${d}</div>`).join('');
+  for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell other-month"></div>`;
+
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const ds   = `${_calYear}-${String(_calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dts  = taskMap[ds] || [];
+    const od   = dts.filter(t => t.status !== 'done' && ds < today).length;
+    const done = dts.filter(t => t.status === 'done').length;
+    html += `
+    <div class="cal-cell${ds===today?' today':''}" onclick="calDayClick('${ds}')">
+      <div class="cal-date">${d}</div>
+      ${dts.length ? `
+        <div class="cal-dots">
+          ${dts.slice(0,8).map(t => {
+            const c = State.getClient(t.clientId);
+            return `<div class="cal-dot" title="${t.title}" style="background:${c?.color||'var(--ink-3)'}"></div>`;
+          }).join('')}
+        </div>
+        ${od   ? `<span class="cal-badge" style="color:var(--red)">⚠ ${od} overdue</span>` : ''}
+        ${done && !od ? `<span class="cal-badge" style="color:var(--accent)">✓ ${done}</span>` : ''}
+        ${(dts.length - done - od) > 0 && !od ? `<span class="cal-badge" style="color:var(--ink-3)">${dts.length-done} open</span>` : ''}
+      ` : ''}
+    </div>`;
+  }
+
+  const endOffset = (7 - ((startOffset + lastDay.getDate()) % 7)) % 7;
+  for (let i = 0; i < endOffset; i++) html += `<div class="cal-cell other-month"></div>`;
+  grid.innerHTML = html;
+}
+
+function calDayClick(dateStr) {
+  /* Switch to list view, filter to show tasks due that date */
+  const wrap = document.getElementById('calendar-wrap');
+  const list = document.getElementById('all-task-list');
+  calendarView = false;
+  if (wrap) wrap.style.display = 'none';
+  if (list) list.style.display = '';
+  const btn = document.getElementById('cal-toggle-btn');
+  if (btn) { btn.innerHTML = '<i class="ti ti-calendar"></i> Calendar'; btn.style.background=''; btn.style.color=''; btn.style.borderColor=''; }
+  const dayTasks = State.filterTasks(taskFilter).filter(t => t.dueDate === dateStr);
+  renderTaskList(dayTasks, 'all-task-list');
+  const lbl = document.getElementById('task-count-label');
+  if (lbl) lbl.textContent = `${dayTasks.length} task${dayTasks.length!==1?'s':''} due ${fmtDate(dateStr)}`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WORKLOAD VIEW
+   ═══════════════════════════════════════════════════════════ */
+function renderWorkload() {
+  const el = document.getElementById('workload-section');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0,10);
+  const data  = State.users.map(u => {
+    const open    = State.tasks.filter(t => t.assigneeId === u.id && t.status !== 'done');
+    const overdue = open.filter(t => t.dueDate < today).length;
+    return { ...u, total: open.length, overdue };
+  }).filter(u => u.total > 0).sort((a,b) => b.total - a.total);
+
+  if (!data.length) { el.innerHTML = ''; return; }
+
+  const maxTasks = Math.max(...data.map(u => u.total), 1);
+  el.innerHTML = `
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 22px">
+    ${data.map(u => {
+      const pct   = Math.round(u.total   / maxTasks * 100);
+      const odPct = Math.round(u.overdue / maxTasks * 100);
+      return `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:${data.indexOf(u) < data.length-1 ? '12' : '0'}px">
+        <div class="avatar ${u.avClass}" style="width:26px;height:26px;font-size:9px;flex-shrink:0">${u.initials}</div>
+        <div style="font-size:12px;color:var(--ink-2);width:76px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div>
+        <div style="flex:1;background:var(--bg);border-radius:4px;height:8px;overflow:hidden;position:relative">
+          <div style="height:100%;width:${pct}%;background:${u.overdue?'var(--amber)':'var(--accent)'};border-radius:4px;transition:width 600ms var(--ease)"></div>
+          ${u.overdue ? `<div style="position:absolute;top:0;left:0;height:100%;width:${odPct}%;background:var(--red);border-radius:4px"></div>` : ''}
+        </div>
+        <div style="font-size:11px;font-family:var(--mono);color:var(--ink-3);text-align:right;flex-shrink:0;min-width:40px">
+          ${u.total}
+          ${u.overdue ? `<div style="color:var(--red);font-size:10px">${u.overdue}OD</div>` : ''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+/* ── Generate tasks from templates ─────────────────────── */
+async function generateFromTemplates() {
+  const month = document.getElementById('tg-month')?.value;
+  if (!month) { toast('Please select a month', 'error'); return; }
+
+  const active = State.templates.filter(tp => tp.active);
+  if (!active.length) { toast('No active templates found', 'error'); return; }
+
+  const btn = document.getElementById('tg-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Generating…'; }
+
+  const monthLabel = _monthLabel(month);
+  const dueDate0   = `${month}-01`; /* earliest possible due date this month */
+  const dueDate1   = _lastDayOfMonth(month);
+  const created    = [];
+  const skipped    = [];
+
+  for (const tp of active) {
+    const dueDate  = _templateDueDate(tp, month);
+    if (!dueDate) continue;
+    const titleKey = `${tp.title} — ${monthLabel}`;
+    /* Duplicate check: match title + client OR same template+client with a due date in this month */
+    const exists = State.tasks.some(t =>
+      t.clientId === tp.clientId &&
+      (t.title === titleKey ||
+       (t.dueDate >= dueDate0 && t.dueDate <= dueDate1 &&
+        t.title.startsWith(tp.title))));
+    if (exists) { skipped.push(tp.title); continue; }
+    const task = await State.addTask({
+      title:      titleKey,
+      clientId:   tp.clientId,
+      assigneeId: tp.assigneeId,
+      type:       tp.recurrence,
+      priority:   'medium',
+      dueDate,
+      notes:      '',
+      status:     'pending',
+    });
+    created.push(task);
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-sparkles"></i> Generate'; }
+
+  if (created.length === 0 && skipped.length > 0) {
+    toast(`All ${skipped.length} tasks already exist for ${monthLabel}`, 'error');
+  } else if (created.length === 0) {
+    toast('No active templates to generate from', 'error');
+  } else {
+    const skipNote = skipped.length ? ` (${skipped.length} already existed)` : '';
+    toast(`${created.length} task${created.length !== 1 ? 's' : ''} created for ${monthLabel}${skipNote}!`);
+  }
+}
+
+function _templateDueDate(tp, yearMonth) {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+
+  if (tp.recurrence === 'monthly') {
+    const day = Math.min(tp.dayOfMonth || lastDay, lastDay);
+    return `${yearMonth}-${String(day).padStart(2, '0')}`;
+  }
+  if (tp.recurrence === 'weekly') {
+    return _firstWeekdayInMonth(yearMonth, tp.dayOfWeek || 'Mon');
+  }
+  if (tp.recurrence === 'daily') {
+    return `${yearMonth}-01`; /* first day of month for daily templates */
+  }
+  return null;
+}
+
+function _firstWeekdayInMonth(yearMonth, dayName) {
+  const dayMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  const [y, m] = yearMonth.split('-').map(Number);
+  const target = dayMap[dayName] ?? 1;
+  const d      = new Date(y, m - 1, 1);
+  while (d.getDay() !== target) d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 /* ── Search ─────────────────────────────────────────────── */
@@ -581,11 +1324,59 @@ function renderPipelinesPage() {
 function renderPipelineTabs() {
   const el = document.getElementById('pipeline-tabs');
   if (!el) return;
-  el.innerHTML = State.pipelines.map(p => `
+  const today   = new Date().toISOString().slice(0,10);
+  const isAdmin = State.user?.role === 'admin';
+  el.innerHTML  = State.pipelines.map(p => {
+    const cards   = State.tasks.filter(t => t.pipelineId === p.id && t.status !== 'done');
+    const hasOD   = cards.some(t => t.dueDate < today);
+    const cnt     = cards.length;
+    const cntHtml = cnt > 0
+      ? `<span style="font-size:10px;font-family:var(--mono);font-weight:600;padding:1px 6px;
+           border-radius:20px;background:${hasOD ? 'var(--red-light)' : 'var(--bg-active)'};
+           color:${hasOD ? 'var(--red)' : 'var(--ink-3)'}">${cnt}</span>`
+      : '';
+    const editHtml = isAdmin
+      ? `<span onclick="event.stopPropagation();openEditPipelineModal('${p.id}')"
+           title="Edit pipeline"
+           style="margin-left:2px;color:var(--ink-4);cursor:pointer;font-size:13px;
+                  display:inline-flex;align-items:center;padding:2px 1px;border-radius:3px;
+                  transition:color 120ms"
+           onmouseover="this.style.color='var(--accent)'"
+           onmouseout="this.style.color='var(--ink-4)'">
+           <i class="ti ti-pencil"></i>
+         </span>`
+      : '';
+    const delHtml = isAdmin
+      ? `<span onclick="event.stopPropagation();confirmDeletePipeline('${p.id}')"
+           title="Delete pipeline"
+           style="color:var(--ink-4);cursor:pointer;font-size:13px;
+                  display:inline-flex;align-items:center;padding:2px 1px;border-radius:3px;
+                  transition:color 120ms"
+           onmouseover="this.style.color='var(--red)'"
+           onmouseout="this.style.color='var(--ink-4)'">
+           <i class="ti ti-x"></i>
+         </span>`
+      : '';
+    return `
     <div class="pipeline-tab ${p.id === State.activePipelineId ? 'active' : ''}"
          onclick="switchPipeline('${p.id}')">
-      ${p.name}
-    </div>`).join('');
+      ${p.name} ${cntHtml} ${editHtml} ${delHtml}
+    </div>`;
+  }).join('');
+}
+
+async function confirmDeletePipeline(pipelineId) {
+  const p = State.getPipeline(pipelineId);
+  if (!p) return;
+  const taskCnt = State.getPipeTasks(pipelineId).length;
+  const msg = taskCnt > 0
+    ? `Delete pipeline "${p.name}"? This will unlink ${taskCnt} task${taskCnt !== 1 ? 's' : ''} from it. This cannot be undone.`
+    : `Delete pipeline "${p.name}"? This cannot be undone.`;
+  if (!confirm(msg)) return;
+  const name = p.name;
+  await State.deletePipeline(pipelineId);
+  toast(`Pipeline "${name}" deleted`, 'error');
+  renderPipelinesPage();
 }
 
 function switchPipeline(pipelineId) {
@@ -621,18 +1412,30 @@ function renderKanbanBoard(pipelineId) {
   }
 
   wrap.innerHTML = `<div class="kanban-board">${stages.map((stage, idx) => {
-    const cards = pipeTasks.filter(t => t.pipelineStageId === stage.id);
-    const isLast = idx === stages.length - 1;
+    const cards   = pipeTasks.filter(t => t.pipelineStageId === stage.id);
+    const isLast  = idx === stages.length - 1;
+    const colStyle = stage.color ? `border-top:2px solid ${stage.color}` : '';
+
+    const dotHtml = canEdit
+      ? `<span class="stage-color-dot ${stage.color ? '' : 'empty'}"
+           style="${stage.color ? `background:${stage.color}` : ''}"
+           onclick="openStageColorPicker('${stage.id}', this)"
+           title="Change stage colour"></span>`
+      : (stage.color ? `<span class="stage-color-dot" style="background:${stage.color}"></span>` : '');
 
     return `
-    <div class="kanban-col">
+    <div class="kanban-col" style="${colStyle}">
       <div class="kanban-col-head">
+        ${dotHtml}
         <span class="kanban-col-title">${stage.name}</span>
         <span class="kanban-col-count">${cards.length}</span>
       </div>
-      <div class="kanban-col-body">
+      <div class="kanban-col-body"
+           ondragover="kanbanDragOver(event)"
+           ondragleave="kanbanDragLeave(event)"
+           ondrop="kanbanDrop(event,'${stage.id}')">
         ${cards.length ? cards.map(task => renderKanbanCard(task, stage, stages, today, canEdit)).join('') : `
-          <div style="text-align:center;padding:20px 10px;font-size:12px;color:var(--ink-4)">No tasks</div>`}
+          <div class="kanban-empty-col">Drop a card here</div>`}
       </div>
       ${canEdit ? `<button class="kanban-add-card" onclick="openPipeTaskModal('${pipelineId}','${stage.id}')">
         <i class="ti ti-plus"></i> Add task
@@ -652,7 +1455,10 @@ function renderKanbanCard(task, currentStage, allStages, today, canEdit) {
 
   return `
   <div class="kanban-card ${over ? 'overdue' : ''} ${done ? 'done' : ''}"
-       onclick="openTaskModal('${task.id}')">
+       onclick="openTaskModal('${task.id}')"
+       draggable="true"
+       ondragstart="kanbanDragStart(event,'${task.id}')"
+       ondragend="kanbanDragEnd(event)">
     <div class="kanban-card-title">${task.title}</div>
     <div class="kanban-card-meta">
       ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
@@ -683,35 +1489,98 @@ async function moveCard(taskId, stageId) {
   renderKanbanBoard(State.activePipelineId);
 }
 
+/* ── Drag & drop ────────────────────────────────────────── */
+function kanbanDragStart(e, taskId) {
+  _dragTaskId = taskId;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => e.target.classList.add('dragging'), 0);
+}
+
+function kanbanDragEnd(e) {
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.kanban-col-body.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function kanbanDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function kanbanDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+
+async function kanbanDrop(e, stageId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!_dragTaskId) return;
+  const task = State.getTask(_dragTaskId);
+  _dragTaskId = null;
+  if (!task || task.pipelineStageId === stageId) return;
+  await State.moveTaskStage(task.id, stageId);
+  renderKanbanBoard(State.activePipelineId);
+}
+
 /* ── New pipeline modal ─────────────────────────────────── */
-let stageCount = 0;
+let stageCount       = 0;
+let editPipelineId   = null;
+let _removedStageIds = [];
+let _dragTaskId      = null;
 
 function openNewPipelineModal() {
-  stageCount = 0;
+  editPipelineId   = null;
+  _removedStageIds = [];
+  stageCount       = 0;
+  document.getElementById('pipeline-form-title').textContent = 'New pipeline';
   document.getElementById('pf-name').value = '';
   document.getElementById('pf-desc').value = '';
   document.getElementById('stage-list').innerHTML = '';
-  addStageInput('');
-  addStageInput('');
-  addStageInput('');
+  addStageInput(''); addStageInput(''); addStageInput('');
+  document.getElementById('pipeline-form-modal').classList.add('open');
+  setTimeout(() => document.getElementById('pf-name').focus(), 100);
+}
+
+function openEditPipelineModal(pipelineId) {
+  editPipelineId   = pipelineId;
+  _removedStageIds = [];
+  stageCount       = 0;
+  const p = State.getPipeline(pipelineId);
+  if (!p) return;
+  document.getElementById('pipeline-form-title').textContent = 'Edit pipeline';
+  document.getElementById('pf-name').value = p.name;
+  document.getElementById('pf-desc').value = p.desc || '';
+  document.getElementById('stage-list').innerHTML = '';
+  State.getStages(pipelineId).forEach(s => addStageInput(s.name, s.color, s.id));
   document.getElementById('pipeline-form-modal').classList.add('open');
   setTimeout(() => document.getElementById('pf-name').focus(), 100);
 }
 
 function closePipelineModal() {
   document.getElementById('pipeline-form-modal').classList.remove('open');
+  editPipelineId   = null;
+  _removedStageIds = [];
 }
 
-function addStageInput(val = '') {
+function addStageInput(val = '', color = '', stageId = '') {
   stageCount++;
-  const id = 'stage-inp-' + stageCount;
+  const id  = 'stage-inp-' + stageCount;
+  const iid = 'stage-item-' + stageCount;
   const item = document.createElement('div');
-  item.className = 'stage-item';
-  item.id = 'stage-item-' + stageCount;
+  item.className       = 'stage-item';
+  item.id              = iid;
+  item.dataset.color   = color;
+  item.dataset.stageId = stageId;
   item.innerHTML = `
     <i class="ti ti-grip-vertical stage-item-drag" aria-hidden="true"></i>
     <input type="text" id="${id}" placeholder="Stage name e.g. Documents collected" value="${val}">
-    <button class="stage-item-del" onclick="removeStageItem('stage-item-${stageCount}')" aria-label="Remove stage">
+    <button class="stage-color-btn ${color ? 'has-color' : ''}" type="button"
+      onclick="openStageColorPickerForInput('${iid}', this)" title="Set stage colour">
+      <span class="stage-color-preview" style="${color ? `background:${color}` : ''}"></span>
+    </button>
+    <button class="stage-item-del" onclick="removeStageItem('${iid}')" aria-label="Remove stage">
       <i class="ti ti-trash" aria-hidden="true"></i>
     </button>`;
   document.getElementById('stage-list').appendChild(item);
@@ -719,7 +1588,10 @@ function addStageInput(val = '') {
 
 function removeStageItem(id) {
   const el = document.getElementById(id);
-  if (el) el.remove();
+  if (!el) return;
+  const sid = el.dataset.stageId;
+  if (sid) _removedStageIds.push(sid);
+  el.remove();
 }
 
 async function submitPipelineForm() {
@@ -727,20 +1599,45 @@ async function submitPipelineForm() {
   const desc = document.getElementById('pf-desc').value.trim();
   if (!name) { toast('Please enter a pipeline name', 'error'); return; }
 
-  const stageInputs = document.querySelectorAll('#stage-list input[type=text]');
-  const stageNames  = Array.from(stageInputs).map(i => i.value.trim()).filter(Boolean);
-  if (stageNames.length < 2) { toast('Add at least 2 stages', 'error'); return; }
+  const stageItems = Array.from(document.querySelectorAll('#stage-list .stage-item'));
+  const stageObjs  = stageItems
+    .map(el => ({
+      name:    el.querySelector('input[type=text]').value.trim(),
+      color:   el.dataset.color   || '',
+      stageId: el.dataset.stageId || '',
+    }))
+    .filter(s => s.name);
+  if (stageObjs.length < 2) { toast('Add at least 2 stages', 'error'); return; }
 
   const btn = document.querySelector('#pipeline-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
-  const pipeline = await State.addPipeline(name, desc, stageNames);
-  State.activePipelineId = pipeline.id;
-
-  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save pipeline'; }
-  closePipelineModal();
-  renderPipelinesPage();
-  toast(`Pipeline "${name}" created!`);
+  if (editPipelineId) {
+    await State.updatePipeline(editPipelineId, { name, desc });
+    for (const sid of _removedStageIds) await State.deleteStage(sid);
+    for (let i = 0; i < stageObjs.length; i++) {
+      const s = stageObjs[i];
+      if (s.stageId) {
+        await State.updateStageData(s.stageId, { name:s.name, color:s.color, order:i+1 });
+      } else {
+        await State.addStage(editPipelineId, s.name, s.color);
+      }
+    }
+    State.activePipelineId = editPipelineId;
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save pipeline'; }
+    closePipelineModal();
+    renderPipelinesPage();
+    populateFormDropdowns();
+    toast(`Pipeline "${name}" updated!`);
+  } else {
+    const pipeline = await State.addPipeline(name, desc, stageObjs);
+    State.activePipelineId = pipeline.id;
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save pipeline'; }
+    closePipelineModal();
+    renderPipelinesPage();
+    populateFormDropdowns();
+    toast(`Pipeline "${name}" created!`);
+  }
 }
 
 /* ── Add task to pipeline modal ─────────────────────────── */
@@ -799,4 +1696,962 @@ async function submitPipeTaskForm() {
   closePipeTaskModal();
   renderKanbanBoard(activePipeId);
   toast('Task added to pipeline!');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SETTINGS PAGE
+   ═══════════════════════════════════════════════════════════ */
+function renderSettings() {
+  renderSettingsDemoBanner();
+  renderSettingsUsers();
+  renderSettingsClients();
+}
+
+function renderSettingsDemoBanner() {
+  const el = document.getElementById('settings-demo-banner');
+  if (!el) return;
+  const demoTaskIds   = new Set(DEMO.tasks.map(t => t.id));
+  const demoClientIds = new Set(DEMO.clients.map(c => c.id));
+  const hasDemoTasks   = State.tasks.some(t => demoTaskIds.has(t.id));
+  const hasDemoClients = State.clients.some(c => demoClientIds.has(c.id));
+  if (!hasDemoTasks && !hasDemoClients) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;
+      background:var(--amber-light);border:1px solid rgba(183,105,26,0.25);
+      border-radius:var(--radius);padding:12px 16px;margin-bottom:28px">
+      <div>
+        <div style="font-size:13px;font-weight:500;color:var(--amber)">
+          <i class="ti ti-info-circle" style="font-size:14px;vertical-align:-2px"></i>
+          Demo data is active
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-2);margin-top:3px">
+          ${hasDemoTasks ? `${State.tasks.filter(t => demoTaskIds.has(t.id)).length} demo tasks` : ''}
+          ${hasDemoTasks && hasDemoClients ? ' · ' : ''}
+          ${hasDemoClients ? `${State.clients.filter(c => demoClientIds.has(c.id)).length} demo clients` : ''}
+          are showing. Clear them to start fresh.
+        </div>
+      </div>
+      <button class="btn btn-sm" onclick="clearDemoData()"
+        style="background:var(--amber);color:#fff;border:none;white-space:nowrap;flex-shrink:0">
+        <i class="ti ti-trash"></i> Clear demo data
+      </button>
+    </div>`;
+}
+
+async function clearDemoData() {
+  if (!confirm('Remove all demo tasks and demo clients? This cannot be undone.')) return;
+  const demoTaskIds   = DEMO.tasks.map(t => t.id);
+  const demoClientIds = DEMO.clients.map(c => c.id);
+
+  for (const id of demoTaskIds) {
+    if (State.getTask(id)) await State.deleteTask(id);
+  }
+  for (const id of demoClientIds) {
+    if (State.getClient(id)) await State.deleteClient(id);
+  }
+
+  toast('Demo data cleared!');
+  renderSettings();
+  renderDashboard();
+  renderAllTasks();
+  renderClients();
+}
+
+function renderSettingsUsers() {
+  const el = document.getElementById('settings-user-list');
+  if (!el) return;
+  const isAdmin = State.user?.role === 'admin';
+  el.innerHTML = State.users.map(u => `
+    <div class="settings-item" id="sui-${u.id}">
+      <div class="settings-item-view">
+        <div class="av-large ${u.avClass}"
+             style="width:36px;height:36px;font-size:11px;flex-shrink:0">${u.initials}</div>
+        <div class="settings-item-info">
+          <div class="settings-item-name">${u.name}</div>
+          <div class="settings-item-sub">${u.email}</div>
+        </div>
+        <span class="role-pill role-${u.role === 'admin' ? 'admin' : u.role === 'assistant' ? 'asst' : 'viewer'}"
+              style="flex-shrink:0">
+          <i class="ti ti-${u.role === 'admin' ? 'crown' : u.role === 'assistant' ? 'pencil' : 'eye'}"
+             style="font-size:10px"></i>
+          ${u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+        </span>
+        ${isAdmin ? `
+        <div class="settings-item-actions">
+          <button class="btn btn-ghost btn-sm" onclick="openEditUserModal('${u.id}')">
+            <i class="ti ti-edit"></i> Edit
+          </button>
+          ${u.id !== State.user?.id
+            ? `<button class="btn btn-danger btn-sm" onclick="confirmDeleteUser('${u.id}')">
+                 <i class="ti ti-trash"></i>
+               </button>`
+            : '<div style="width:32px"></div>'}
+        </div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function renderSettingsClients() {
+  const el = document.getElementById('settings-client-list');
+  if (!el) return;
+  const isAdmin = State.user?.role === 'admin';
+  el.innerHTML = State.clients.map(c => `
+    <div class="settings-item" id="sci-${c.id}">
+      <div class="settings-item-view">
+        <div style="width:36px;height:36px;border-radius:var(--radius-sm);background:${c.bg};
+             display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+             font-size:10px;font-weight:600;color:${c.color};flex-shrink:0">${c.short}</div>
+        <div class="settings-item-info">
+          <div class="settings-item-name">${c.name}</div>
+          <div class="settings-item-sub" style="display:flex;align-items:center;gap:5px">
+            <span style="display:inline-block;width:9px;height:9px;border-radius:50%;
+                  background:${c.color};flex-shrink:0"></span>
+            ${c.color} &middot; ${c.short}
+          </div>
+        </div>
+        ${isAdmin ? `
+        <div class="settings-item-actions">
+          <button class="btn btn-ghost btn-sm" onclick="openEditClientModal('${c.id}')">
+            <i class="ti ti-edit"></i> Edit
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDeleteClient('${c.id}')">
+            <i class="ti ti-trash"></i>
+          </button>
+        </div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+/* ── User modal (add & edit) ────────────────────────────── */
+function openAddUserModal() {
+  editUserId = null;
+  document.getElementById('user-form-title').textContent = 'Add user';
+  document.getElementById('uf-id').value       = '';
+  document.getElementById('uf-name').value     = '';
+  document.getElementById('uf-email').value    = '';
+  document.getElementById('uf-role').value     = 'viewer';
+  document.getElementById('uf-initials').value = '';
+  document.getElementById('uf-avclass').value  = 'av-viewer';
+  document.getElementById('uf-password').value = '';
+  document.getElementById('uf-pw-star').style.display = '';
+  document.getElementById('uf-pw-hint').textContent   = '';
+  document.getElementById('uf-telegram').value        = '';
+  document.getElementById('user-form-modal').classList.add('open');
+  setTimeout(() => document.getElementById('uf-name').focus(), 100);
+}
+
+function openEditUserModal(userId) {
+  editUserId = userId;
+  const u = State.getUser(userId);
+  if (!u) return;
+  document.getElementById('user-form-title').textContent = 'Edit user';
+  document.getElementById('uf-id').value       = u.id;
+  document.getElementById('uf-name').value     = u.name;
+  document.getElementById('uf-email').value    = u.email;
+  document.getElementById('uf-role').value     = u.role;
+  document.getElementById('uf-initials').value = u.initials;
+  document.getElementById('uf-avclass').value  = u.avClass;
+  document.getElementById('uf-password').value = '';
+  document.getElementById('uf-pw-star').style.display  = 'none';
+  document.getElementById('uf-pw-hint').textContent    = 'Leave blank to keep current password';
+  document.getElementById('uf-telegram').value         = u.telegramChatId || '';
+  document.getElementById('user-form-modal').classList.add('open');
+}
+
+function closeUserModal() {
+  document.getElementById('user-form-modal').classList.remove('open');
+  editUserId = null;
+}
+
+async function submitUserForm() {
+  const name           = document.getElementById('uf-name').value.trim();
+  const email          = document.getElementById('uf-email').value.trim();
+  const role           = document.getElementById('uf-role').value;
+  const initials       = document.getElementById('uf-initials').value.trim().toUpperCase();
+  const avClass        = document.getElementById('uf-avclass').value;
+  const password       = document.getElementById('uf-password').value;
+  const telegramChatId = document.getElementById('uf-telegram').value.trim();
+
+  if (!name || !email || !initials) {
+    toast('Please fill in name, email and initials', 'error'); return;
+  }
+  if (!editUserId && !password) {
+    toast('Password is required for new users', 'error'); return;
+  }
+
+  const btn = document.querySelector('#user-form-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+
+  if (editUserId) {
+    const patch = { name, email, role, initials, avClass, telegramChatId };
+    if (password) patch.password = password;
+    await State.updateUser(editUserId, patch);
+    toast('User updated!');
+  } else {
+    await State.addUser({ name, email, role, initials, avClass, password, telegramChatId });
+    toast(`User "${name}" added!`);
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save user'; }
+  closeUserModal();
+  renderSettingsUsers();
+  renderUserSelectList();
+  populateFormDropdowns();
+}
+
+async function confirmDeleteUser(userId) {
+  const u = State.getUser(userId);
+  if (!u) return;
+  if (userId === State.user?.id) { toast('You cannot delete yourself', 'error'); return; }
+  if (!confirm(`Delete user "${u.name}"? This cannot be undone.`)) return;
+  await State.deleteUser(userId);
+  toast(`User "${u.name}" deleted`, 'error');
+  renderSettingsUsers();
+  renderUserSelectList();
+  populateFormDropdowns();
+}
+
+/* ── Client edit from settings ──────────────────────────── */
+function openEditClientModal(clientId) {
+  editClientSettingsId = clientId;
+  const c = State.getClient(clientId);
+  if (!c) return;
+  const modal = document.getElementById('client-form-modal');
+  modal.querySelector('.modal-title').textContent = 'Edit client';
+  modal.querySelector('.btn-primary').innerHTML   = '<i class="ti ti-circle-check"></i> Save changes';
+  document.getElementById('cf-name').value  = c.name;
+  document.getElementById('cf-short').value = c.short;
+  document.getElementById('cf-color').value = c.color;
+  modal.classList.add('open');
+}
+
+async function confirmDeleteClient(clientId) {
+  const c = State.getClient(clientId);
+  if (!c) return;
+  const active = State.tasks.filter(t => t.clientId === clientId && t.status !== 'done').length;
+  const msg = active > 0
+    ? `Delete client "${c.name}"? There are ${active} active task${active !== 1 ? 's' : ''} for this client. This cannot be undone.`
+    : `Delete client "${c.name}"? This cannot be undone.`;
+  if (!confirm(msg)) return;
+  await State.deleteClient(clientId);
+  toast(`Client "${c.name}" deleted`, 'error');
+  renderSettingsClients();
+  renderClients();
+  populateFormDropdowns();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SUB-TASKS / CHECKLIST
+   ═══════════════════════════════════════════════════════════ */
+function _renderChecklistSection(task, canEdit) {
+  const subtasks = task.subtasks || [];
+  const done  = subtasks.filter(s => s.done).length;
+  const total = subtasks.length;
+  const pct   = total ? Math.round(done / total * 100) : 0;
+
+  return `
+  <div class="subtask-section">
+    <div class="subtask-head">
+      <span style="font-size:11px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.6px">
+        <i class="ti ti-checklist" style="font-size:13px;vertical-align:-2px"></i> Checklist
+      </span>
+      ${total ? `<span style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">${done}/${total}</span>` : ''}
+    </div>
+    ${total ? `<div class="subtask-progress-bar">
+      <div class="subtask-progress-fill" style="width:${pct}%"></div>
+    </div>` : ''}
+    <div class="subtask-list" id="st-list-${task.id}">
+      ${subtasks.map(s => `
+        <div class="subtask-item" id="st-${s.id}">
+          <div class="subtask-check ${s.done ? 'checked' : ''}"
+            onclick="${canEdit ? `toggleSubtaskCheck('${task.id}','${s.id}')` : ''}">
+            ${s.done ? '<i class="ti ti-check" style="font-size:9px"></i>' : ''}
+          </div>
+          <span class="subtask-text ${s.done ? 'done' : ''}">${esc(s.text)}</span>
+          ${canEdit ? `<button class="subtask-del" onclick="deleteSubtaskItem('${task.id}','${s.id}')">
+            <i class="ti ti-x"></i></button>` : ''}
+        </div>`).join('')}
+    </div>
+    ${canEdit ? `
+    <div style="display:flex;gap:8px">
+      <input type="text" id="st-input-${task.id}" class="form-input"
+        placeholder="Add checklist item…" style="height:32px;font-size:12px"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();addSubtaskItem('${task.id}')}">
+      <button class="btn btn-ghost btn-sm" onclick="addSubtaskItem('${task.id}')">
+        <i class="ti ti-plus"></i>
+      </button>
+    </div>` : ''}
+  </div>`;
+}
+
+async function addSubtaskItem(taskId) {
+  const inp  = document.getElementById(`st-input-${taskId}`);
+  const text = inp?.value?.trim();
+  if (!text) return;
+  inp.value = '';
+  await State.addSubtask(taskId, text);
+  openTaskModal(taskId); /* re-render modal */
+}
+
+async function toggleSubtaskCheck(taskId, stId) {
+  await State.toggleSubtask(taskId, stId);
+  openTaskModal(taskId);
+}
+
+async function deleteSubtaskItem(taskId, stId) {
+  await State.deleteSubtask(taskId, stId);
+  openTaskModal(taskId);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ACTIVITY LOG
+   ═══════════════════════════════════════════════════════════ */
+function _renderActivitySection(taskId) {
+  const events = State.activityLog.filter(e => e.taskId === taskId)
+    .sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+  if (!events.length) return '';
+
+  return `
+  <div class="activity-section">
+    <button class="activity-toggle" onclick="toggleActivity(this)">
+      <i class="ti ti-history" style="font-size:13px"></i>
+      Activity (${events.length})
+      <i class="ti ti-chevron-down" id="act-chevron" style="font-size:11px;margin-left:auto"></i>
+    </button>
+    <div class="activity-list" id="activity-list" style="display:none">
+      ${events.map(ev => {
+        const u = State.getUser(ev.userId);
+        return `<div class="activity-item">
+          <div class="activity-dot"></div>
+          <div class="activity-text">
+            ${u ? `<strong>${u.name}</strong> — ` : ''}${esc(ev.text)}
+          </div>
+          <div class="activity-time">${ev.createdAt}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function toggleActivity(btn) {
+  const list    = document.getElementById('activity-list');
+  const chevron = document.getElementById('act-chevron');
+  if (!list) return;
+  const open = list.style.display === 'none';
+  list.style.display    = open ? '' : 'none';
+  chevron.className     = open ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  chevron.style.marginLeft = 'auto';
+  chevron.style.fontSize   = '11px';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DOCUMENTS PAGE
+   ═══════════════════════════════════════════════════════════ */
+const DOC_ICONS = {
+  'Trade License':    { icon:'ti-building', bg:'var(--blue-light)',   color:'var(--blue)'   },
+  'Emirates ID':      { icon:'ti-id-badge', bg:'var(--purple-light)', color:'var(--purple)' },
+  'Visa':             { icon:'ti-plane',    bg:'var(--accent-light)', color:'var(--accent)' },
+  'VAT Registration': { icon:'ti-receipt',  bg:'var(--amber-light)',  color:'var(--amber)'  },
+  'TRN Certificate':  { icon:'ti-certificate', bg:'var(--amber-light)', color:'var(--amber)' },
+  'Insurance':        { icon:'ti-shield',   bg:'var(--green-light)',  color:'var(--green)'  },
+};
+
+function renderDocuments() {
+  const el    = document.getElementById('document-list');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0,10);
+  const soon  = new Date(Date.now() + 30 * 86400000).toISOString().slice(0,10);
+
+  /* Expiry alert badge in sidebar */
+  const expiring = State.expiringDocuments(30).length;
+  const db = document.getElementById('badge-documents');
+  if (db) { db.textContent = expiring || ''; db.style.display = expiring ? '' : 'none'; }
+
+  /* Dashboard alert */
+  const alertEl = document.getElementById('doc-expiry-alert');
+  if (alertEl) {
+    const critical = State.expiringDocuments(30);
+    if (critical.length) {
+      alertEl.style.display = '';
+      alertEl.innerHTML = `
+        <div style="background:var(--amber-light);border:1px solid rgba(183,105,26,0.25);
+          border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;gap:12px">
+          <i class="ti ti-alert-triangle" style="font-size:18px;color:var(--amber);flex-shrink:0"></i>
+          <div>
+            <div style="font-size:13px;font-weight:500;color:var(--amber)">
+              ${critical.length} document${critical.length !== 1 ? 's' : ''} expiring within 30 days
+            </div>
+            <div style="font-size:11.5px;color:var(--ink-2);margin-top:2px">
+              ${critical.slice(0,3).map(d => {
+                const c = State.getClient(d.clientId);
+                return `${c?.short||'?'} · ${d.type}`;
+              }).join(' &nbsp;·&nbsp; ')}
+              ${critical.length > 3 ? ` and ${critical.length-3} more` : ''}
+            </div>
+          </div>
+        </div>`;
+    } else {
+      alertEl.style.display = 'none';
+    }
+  }
+
+  if (!State.documents.length) {
+    el.innerHTML = `<div class="empty-state">
+      <i class="ti ti-file-certificate"></i>
+      <p>No documents added yet. Click <strong>Add document</strong> to start tracking expiry dates.</p>
+    </div>`;
+    return;
+  }
+
+  /* Group by client */
+  const groups = {};
+  State.documents.forEach(d => {
+    (groups[d.clientId] = groups[d.clientId] || []).push(d);
+  });
+
+  el.innerHTML = Object.keys(groups).map(clientId => {
+    const c = State.getClient(clientId);
+    const isAdmin = State.user?.role === 'admin';
+    return `
+    <div class="doc-group-head">
+      <span style="width:8px;height:8px;border-radius:50%;background:${c?.color||'var(--ink-4)'};flex-shrink:0"></span>
+      <span class="doc-group-name">${c?.name || 'Unknown client'}</span>
+    </div>
+    <div class="doc-grid">
+      ${groups[clientId].map(d => {
+        const expired  = d.expiryDate < today;
+        const expiring2 = !expired && d.expiryDate <= soon;
+        const ic       = DOC_ICONS[d.type] || { icon:'ti-file', bg:'var(--bg-active)', color:'var(--ink-3)' };
+        const daysLeft = Math.ceil((new Date(d.expiryDate) - new Date(today)) / 86400000);
+
+        let badgeStyle, badgeText;
+        if (expired) {
+          badgeStyle = 'background:var(--red-light);color:var(--red)';
+          badgeText  = 'Expired';
+        } else if (expiring2) {
+          badgeStyle = 'background:var(--amber-light);color:var(--amber)';
+          badgeText  = `${daysLeft}d left`;
+        } else {
+          badgeStyle = 'background:var(--green-light);color:var(--green)';
+          badgeText  = `${daysLeft}d`;
+        }
+
+        return `
+        <div class="doc-card ${expired ? 'expired' : expiring2 ? 'expiring' : ''}">
+          <div class="doc-icon" style="background:${ic.bg};color:${ic.color}">
+            <i class="ti ${ic.icon}"></i>
+          </div>
+          <div class="doc-info">
+            <div class="doc-type">${d.type}${d.number ? ` <span style="font-weight:400;color:var(--ink-3)">#${esc(d.number)}</span>` : ''}</div>
+            <div class="doc-meta">Expires ${fmtDate(d.expiryDate)}${d.notes ? ` · ${esc(d.notes)}` : ''}</div>
+          </div>
+          <span class="doc-expiry-badge" style="${badgeStyle}">${badgeText}</span>
+          ${isAdmin ? `
+          <div class="doc-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openEditDocumentModal('${d.id}')">
+              <i class="ti ti-edit"></i>
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="createRenewalTask('${d.id}')" title="Create renewal task">
+              <i class="ti ti-refresh"></i>
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="confirmDeleteDocument('${d.id}')">
+              <i class="ti ti-trash"></i>
+            </button>
+          </div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+}
+
+/* ── Document modal ─────────────────────────────────────── */
+let editDocumentId = null;
+
+function openAddDocumentModal() {
+  editDocumentId = null;
+  document.getElementById('doc-form-title').textContent = 'Add document';
+  document.getElementById('df-id').value     = '';
+  document.getElementById('df-number').value = '';
+  document.getElementById('df-expiry').value = '';
+  document.getElementById('df-notes').value  = '';
+  document.getElementById('df-type').value   = 'Trade License';
+  const clientSel = document.getElementById('df-client');
+  clientSel.innerHTML = `<option value="">Select client…</option>` +
+    State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('document-form-modal').classList.add('open');
+}
+
+function openEditDocumentModal(docId) {
+  editDocumentId = docId;
+  const d = State.documents.find(x => x.id === docId);
+  if (!d) return;
+  document.getElementById('doc-form-title').textContent = 'Edit document';
+  const clientSel = document.getElementById('df-client');
+  clientSel.innerHTML = `<option value="">Select client…</option>` +
+    State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('df-id').value     = d.id;
+  document.getElementById('df-client').value = d.clientId;
+  document.getElementById('df-type').value   = d.type;
+  document.getElementById('df-number').value = d.number || '';
+  document.getElementById('df-expiry').value = d.expiryDate;
+  document.getElementById('df-notes').value  = d.notes || '';
+  document.getElementById('document-form-modal').classList.add('open');
+}
+
+function closeDocumentModal() {
+  document.getElementById('document-form-modal').classList.remove('open');
+  editDocumentId = null;
+}
+
+async function submitDocumentForm() {
+  const clientId   = document.getElementById('df-client').value;
+  const type       = document.getElementById('df-type').value;
+  const number     = document.getElementById('df-number').value.trim();
+  const expiryDate = document.getElementById('df-expiry').value;
+  const notes      = document.getElementById('df-notes').value.trim();
+
+  if (!clientId || !expiryDate) { toast('Please fill in client and expiry date', 'error'); return; }
+
+  const btn = document.querySelector('#document-form-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+
+  if (editDocumentId) {
+    await State.updateDocument(editDocumentId, { clientId, type, number, expiryDate, notes });
+    toast('Document updated!');
+  } else {
+    await State.addDocument({ clientId, type, number, expiryDate, notes });
+    toast('Document added!');
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save document'; }
+  closeDocumentModal();
+  renderDocuments();
+}
+
+async function confirmDeleteDocument(docId) {
+  if (!confirm('Delete this document? This cannot be undone.')) return;
+  await State.deleteDocument(docId);
+  toast('Document deleted', 'error');
+  renderDocuments();
+}
+
+async function createRenewalTask(docId) {
+  const d = State.documents.find(x => x.id === docId);
+  if (!d) return;
+  const c = State.getClient(d.clientId);
+  const today = new Date().toISOString().slice(0,10);
+  const due   = new Date(Date.now() + 14 * 86400000).toISOString().slice(0,10);
+  await State.addTask({
+    title:      `Renew ${d.type} — ${c?.short || ''}`,
+    clientId:   d.clientId,
+    assigneeId: State.user?.id,
+    type:       'oneoff',
+    priority:   'high',
+    dueDate:    due,
+    notes:      `Renewal for ${d.type}${d.number ? ' #'+d.number : ''}. Current expiry: ${fmtDate(d.expiryDate)}`,
+    status:     'pending',
+  });
+  toast(`Renewal task created for ${d.type}!`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MONTHLY CLOSE CHECKLIST
+   ═══════════════════════════════════════════════════════════ */
+
+const CLOSE_TEMPLATES = [
+  { title: 'Bank reconciliation',     priority: 'high'   },
+  { title: 'VAT review',              priority: 'medium' },
+  { title: 'Payroll processing',      priority: 'high'   },
+  { title: 'P&L report',              priority: 'medium' },
+  { title: 'Accounts payable review', priority: 'medium' },
+];
+
+function renderClosePage() {
+  /* Default month = previous month */
+  const now  = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const defaultMonth = prev.toISOString().slice(0, 7);
+
+  const monthEl = document.getElementById('cl-month');
+  if (monthEl && !monthEl.value) monthEl.value = defaultMonth;
+
+  /* Assignee dropdown */
+  const asel = document.getElementById('cl-assignee');
+  if (asel) {
+    asel.innerHTML = State.users.map(u =>
+      `<option value="${u.id}">${u.name} (${u.role})</option>`
+    ).join('');
+  }
+
+  /* Task type checkboxes */
+  const tlist = document.getElementById('cl-task-list');
+  if (tlist) {
+    tlist.innerHTML = CLOSE_TEMPLATES.map((t, i) => {
+      const badgeCls = t.priority === 'high'
+        ? 'background:var(--red-light);color:var(--red)'
+        : 'background:var(--amber-light);color:var(--amber)';
+      return `
+      <div class="close-check-item checked" id="clt-${i}" onclick="toggleCloseItem(this,'clt-${i}')">
+        <input type="checkbox" checked data-title="${t.title}" data-priority="${t.priority}">
+        <div class="close-check-box"><i class="ti ti-check" style="font-size:9px"></i></div>
+        <span class="close-check-label">${t.title}</span>
+        <span class="close-check-badge" style="${badgeCls}">${t.priority}</span>
+      </div>`;
+    }).join('');
+  }
+
+  /* Client checkboxes */
+  const clist = document.getElementById('cl-client-list');
+  if (clist) {
+    clist.innerHTML = State.clients.map(c => `
+      <div class="close-check-item checked" id="clc-${c.id}" onclick="toggleCloseItem(this,'clc-${c.id}')">
+        <input type="checkbox" checked value="${c.id}">
+        <div class="close-check-box"><i class="ti ti-check" style="font-size:9px"></i></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:${c.color};flex-shrink:0"></div>
+        <span class="close-check-label">${c.name}</span>
+        <span class="close-check-badge" style="background:${c.bg};color:${c.color};font-family:var(--mono)">${c.short}</span>
+      </div>`).join('');
+  }
+
+  document.getElementById('cl-result').style.display = 'none';
+  updateCloseLabel();
+}
+
+function toggleCloseItem(el, id) {
+  el.classList.toggle('checked');
+  el.querySelector('input').checked = el.classList.contains('checked');
+  updateCloseLabel();
+}
+
+let _allClientsSelected = true;
+function toggleAllClients() {
+  _allClientsSelected = !_allClientsSelected;
+  document.querySelectorAll('#cl-client-list .close-check-item').forEach(el => {
+    el.classList.toggle('checked', _allClientsSelected);
+    el.querySelector('input').checked = _allClientsSelected;
+  });
+  document.getElementById('cl-toggle-btn').textContent =
+    _allClientsSelected ? 'Deselect all' : 'Select all';
+  updateCloseLabel();
+}
+
+function updateCloseLabel() {
+  const tasks   = document.querySelectorAll('#cl-task-list   .close-check-item.checked').length;
+  const clients = document.querySelectorAll('#cl-client-list .close-check-item.checked').length;
+  const total   = tasks * clients;
+  const lbl     = document.getElementById('cl-count-label');
+  if (lbl) lbl.textContent = total > 0 ? `${total} task${total !== 1 ? 's' : ''} will be created` : '';
+  const genLbl = document.getElementById('cl-gen-label');
+  if (genLbl) genLbl.textContent = total > 0 ? `Generate ${total} tasks` : 'Generate checklist';
+}
+
+function _lastDayOfMonth(yearMonth) {
+  const [y, m] = yearMonth.split('-').map(Number);
+  return new Date(y, m, 0).toISOString().slice(0, 10);
+}
+
+async function generateCloseChecklist() {
+  const month      = document.getElementById('cl-month').value;
+  const assigneeId = document.getElementById('cl-assignee').value;
+
+  if (!month)      { toast('Please select a month', 'error');    return; }
+  if (!assigneeId) { toast('Please select an assignee', 'error'); return; }
+
+  const selectedTaskEls   = Array.from(document.querySelectorAll('#cl-task-list   .close-check-item.checked input'));
+  const selectedClientEls = Array.from(document.querySelectorAll('#cl-client-list .close-check-item.checked input'));
+
+  if (!selectedTaskEls.length)   { toast('Select at least one task type', 'error');   return; }
+  if (!selectedClientEls.length) { toast('Select at least one client', 'error'); return; }
+
+  const monthLabel = _monthLabel(month);
+  const dueDate    = _lastDayOfMonth(month);
+
+  const btn = document.getElementById('cl-gen-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Creating tasks…'; }
+
+  const created = [];
+  for (const clientEl of selectedClientEls) {
+    for (const taskEl of selectedTaskEls) {
+      const titleKey = `${taskEl.dataset.title} — ${monthLabel}`;
+      const exists   = State.tasks.some(t => t.title === titleKey && t.clientId === clientEl.value);
+      if (exists) continue;
+      const task = await State.addTask({
+        title:      titleKey,
+        clientId:   clientEl.value,
+        assigneeId,
+        type:       'monthly',
+        priority:   taskEl.dataset.priority,
+        dueDate,
+        notes:      `Monthly close · ${monthLabel}`,
+        status:     'pending',
+      });
+      created.push(task);
+    }
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-sparkles"></i> <span id="cl-gen-label">Generate checklist</span>';
+    updateCloseLabel();
+  }
+
+  toast(`${created.length} tasks created for ${monthLabel}!`);
+
+  const result = document.getElementById('cl-result');
+  result.style.display = '';
+  document.getElementById('cl-result-title').textContent =
+    `${created.length} tasks generated for ${monthLabel}`;
+  renderTaskList(created, 'cl-task-results');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STAGE COLOUR PICKER
+   ═══════════════════════════════════════════════════════════ */
+function _buildSwatches() {
+  const sw = document.getElementById('stage-color-swatches');
+  if (!sw) return;
+  sw.innerHTML = STAGE_COLORS.map(c => `
+    <div onclick="applyStageColor('${c}')" title="${c}"
+      style="width:22px;height:22px;border-radius:50%;background:${c};cursor:pointer;
+             border:2px solid transparent;transition:transform 110ms,border-color 110ms"
+      onmouseover="this.style.transform='scale(1.2)';this.style.borderColor='#fff'"
+      onmouseout ="this.style.transform='scale(1)';  this.style.borderColor='transparent'">
+    </div>`).join('');
+}
+
+function openStageColorPicker(stageId, anchorEl) {
+  _colorPickerTarget = { type:'stage', id:stageId };
+  _positionAndShow(anchorEl);
+}
+
+function openStageColorPickerForInput(itemId, anchorEl) {
+  _colorPickerTarget = { type:'input', id:itemId };
+  _positionAndShow(anchorEl);
+}
+
+function _positionAndShow(anchorEl) {
+  _buildSwatches();
+  const picker = document.getElementById('stage-color-picker');
+  picker.style.display = 'block';
+  const rect = anchorEl.getBoundingClientRect();
+  const top  = rect.bottom + 6;
+  const left = Math.max(8, Math.min(rect.left - 70, window.innerWidth - 200));
+  picker.style.top  = top  + 'px';
+  picker.style.left = left + 'px';
+}
+
+function applyStageColor(color) {
+  if (!_colorPickerTarget) return;
+  if (_colorPickerTarget.type === 'stage') {
+    State.updateStageColor(_colorPickerTarget.id, color);
+    renderKanbanBoard(State.activePipelineId);
+  } else {
+    const item = document.getElementById(_colorPickerTarget.id);
+    if (item) {
+      item.dataset.color = color;
+      const preview = item.querySelector('.stage-color-preview');
+      const btn     = item.querySelector('.stage-color-btn');
+      if (preview) preview.style.background = color || '';
+      if (btn)     btn.classList.toggle('has-color', !!color);
+    }
+  }
+  closeStageColorPicker();
+}
+
+function closeStageColorPicker() {
+  const p = document.getElementById('stage-color-picker');
+  if (p) p.style.display = 'none';
+  _colorPickerTarget = null;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TASK DEPENDENCIES
+   ═══════════════════════════════════════════════════════════ */
+function _renderDependenciesSection(task, canEdit) {
+  const blockedBy = task.blockedBy || [];
+  if (!blockedBy.length && !canEdit) return '';
+
+  return `
+  <div class="dep-section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span style="font-size:11px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.6px">
+        <i class="ti ti-link" style="font-size:12px;vertical-align:-1px"></i> Dependencies
+        ${blockedBy.length ? `<span style="font-weight:400;color:var(--ink-3)">(${blockedBy.length})</span>` : ''}
+      </span>
+    </div>
+    ${blockedBy.map(bid => {
+      const blocker  = State.getTask(bid);
+      const resolved = blocker?.status === 'done';
+      return `
+      <div class="dep-item ${resolved ? 'resolved' : ''}">
+        <span class="dep-status" style="${resolved
+          ? 'background:var(--green-light);color:var(--green)'
+          : 'background:var(--red-light);color:var(--red)'}">
+          ${resolved ? '✓ Done' : '⊘ Open'}
+        </span>
+        <span class="dep-item-title">${blocker ? esc(blocker.title) : `Task ${bid}`}</span>
+        ${canEdit ? `<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px"
+          onclick="removeDependencyItem('${task.id}','${bid}')">
+          <i class="ti ti-x" style="font-size:11px"></i>
+        </button>` : ''}
+      </div>`;
+    }).join('')}
+    ${canEdit ? `
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <select id="dep-select-${task.id}" class="form-select" style="height:32px;font-size:12px">
+        <option value="">Add blocked-by task…</option>
+        ${State.tasks
+          .filter(t => t.id !== task.id && !blockedBy.includes(t.id) && t.status !== 'done')
+          .map(t => `<option value="${t.id}">${esc(t.title)}</option>`)
+          .join('')}
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="addDependencyItem('${task.id}')">
+        <i class="ti ti-plus"></i> Add
+      </button>
+    </div>` : ''}
+  </div>`;
+}
+
+async function addDependencyItem(taskId) {
+  const sel = document.getElementById(`dep-select-${taskId}`);
+  const blockedById = sel?.value;
+  if (!blockedById) return;
+  await State.addDependency(taskId, blockedById);
+  openTaskModal(taskId);
+}
+
+async function removeDependencyItem(taskId, blockedById) {
+  await State.removeDependency(taskId, blockedById);
+  openTaskModal(taskId);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SAVED FILTER VIEWS
+   ═══════════════════════════════════════════════════════════ */
+let _activeSavedView = null;
+
+function renderSavedViews() {
+  const bar  = document.getElementById('saved-views-bar');
+  const list = document.getElementById('saved-views-list');
+  if (!bar || !list) return;
+  const views = State.savedViews;
+  bar.style.display = views.length ? 'flex' : 'none';
+  list.innerHTML = views.map(v => `
+    <span class="saved-view-chip ${_activeSavedView === v.id ? 'active' : ''}"
+      onclick="applySavedView('${v.id}')">
+      <i class="ti ti-bookmark" style="font-size:11px"></i>
+      ${esc(v.name)}
+      <button class="sv-del" onclick="event.stopPropagation();deleteSavedViewItem('${v.id}')">
+        <i class="ti ti-x"></i>
+      </button>
+    </span>`).join('');
+}
+
+async function saveCurrentFilter() {
+  const name = prompt('Name this view:', '');
+  if (!name?.trim()) return;
+  const filters = { ...taskFilter };
+  await State.addSavedView(name.trim(), filters);
+  renderSavedViews();
+  toast(`View "${name.trim()}" saved!`);
+}
+
+function applySavedView(id) {
+  const v = State.savedViews.find(x => x.id === id);
+  if (!v) return;
+  _activeSavedView = (_activeSavedView === id) ? null : id;
+  if (_activeSavedView) {
+    Object.assign(taskFilter, v.filters);
+  } else {
+    taskFilter = { status:'all', type:'all', clientId:'all', assigneeId:'all', search:'' };
+  }
+  renderAllTasks();
+}
+
+async function deleteSavedViewItem(id) {
+  await State.deleteSavedView(id);
+  if (_activeSavedView === id) {
+    _activeSavedView = null;
+    taskFilter = { status:'all', type:'all', clientId:'all', assigneeId:'all', search:'' };
+  }
+  renderSavedViews();
+  renderAllTasks();
+  toast('View deleted', 'error');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TIME TRACKING
+   ═══════════════════════════════════════════════════════════ */
+function _renderTimeLogSection(task, canLog) {
+  const logs  = State.getTaskTimeLogs(task.id);
+  const total = logs.reduce((s, l) => s + l.hours, 0);
+
+  return `
+  <div class="timelog-section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span style="font-size:11px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.6px">
+        <i class="ti ti-clock" style="font-size:12px;vertical-align:-1px"></i> Time log
+      </span>
+      ${total > 0 ? `<span style="font-size:11px;font-family:var(--mono);color:var(--accent);font-weight:600">
+        ${total.toFixed(1)}h total
+      </span>` : ''}
+    </div>
+    ${logs.length ? `
+      <div class="timelog-list">
+        ${logs.map(l => {
+          const u = State.getUser(l.userId);
+          return `<div class="timelog-item">
+            <span class="timelog-hours">${l.hours.toFixed(1)}h</span>
+            <span class="timelog-desc">${esc(l.description) || '—'}
+              ${l.billable ? '<span style="font-size:10px;color:var(--accent);margin-left:4px">● billable</span>' : ''}
+            </span>
+            <span class="timelog-meta">${u?.initials||'?'} · ${fmtDate(l.date)}</span>
+            ${canLog && l.userId === State.user?.id ? `
+            <button class="btn btn-ghost btn-sm" style="padding:2px 5px"
+              onclick="deleteTimeEntry('${task.id}','${l.id}')">
+              <i class="ti ti-x" style="font-size:11px"></i>
+            </button>` : ''}
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+    ${canLog ? `
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input type="number" id="tl-hours-${task.id}" class="form-input"
+        placeholder="Hours" min="0.25" step="0.25"
+        style="width:90px;height:32px;font-size:12px">
+      <input type="text" id="tl-desc-${task.id}" class="form-input"
+        placeholder="Description (optional)"
+        style="flex:1;min-width:120px;height:32px;font-size:12px"
+        onkeydown="if(event.key==='Enter')logTimeEntry('${task.id}')">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-2);cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="tl-bill-${task.id}" checked> Billable
+      </label>
+      <button class="btn btn-ghost btn-sm" onclick="logTimeEntry('${task.id}')">
+        <i class="ti ti-plus"></i> Log
+      </button>
+    </div>` : ''}
+  </div>`;
+}
+
+async function logTimeEntry(taskId) {
+  const hoursEl = document.getElementById(`tl-hours-${taskId}`);
+  const descEl  = document.getElementById(`tl-desc-${taskId}`);
+  const billEl  = document.getElementById(`tl-bill-${taskId}`);
+  const hours   = parseFloat(hoursEl?.value);
+  if (!hours || hours <= 0) { toast('Enter valid hours', 'error'); return; }
+  await State.addTimeLog({
+    taskId,
+    hours,
+    description: descEl?.value?.trim() || '',
+    date:        new Date().toISOString().slice(0,10),
+    billable:    billEl?.checked !== false,
+  });
+  toast(`${hours}h logged!`);
+  openTaskModal(taskId);
+}
+
+async function deleteTimeEntry(taskId, logId) {
+  await State.deleteTimeLog(logId);
+  openTaskModal(taskId);
 }
