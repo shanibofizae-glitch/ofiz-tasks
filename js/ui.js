@@ -712,7 +712,7 @@ function openTaskModal(taskId, tab) {
         padding:12px 14px;background:var(--bg);border-radius:var(--radius-sm);
         border-left:2px solid var(--border-md)">${esc(task.notes)}</p>` : ''}
 
-    ${_renderChecklistSection(task, canClose)}
+    ${(task.subtasks?.length || canClose) ? _renderChecklistSection(task, canClose) : ''}
     ${_renderDependenciesSection(task, canEdit)}
     ${_renderTimeLogSection(task, canClose)}
 
@@ -3896,9 +3896,16 @@ function renderReminders() {
          <span style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">${doneCount}/${totalCount} done</span>`
       : '';
 
-    /* Occurrence list for recurring */
+    /* Occurrence list for recurring — collapsed by default */
     const occurrenceHtml = isRecurring ? `
-      <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="margin-top:8px">
+        <button type="button" onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('i').className='ti '+(this.nextElementSibling.style.display==='none'?'ti-chevron-down':'ti-chevron-up')"
+          style="background:none;border:none;font-size:11px;color:var(--ink-3);cursor:pointer;
+            display:flex;align-items:center;gap:4px;font-family:var(--font);padding:0">
+          <i class="ti ti-chevron-down" style="font-size:11px"></i>
+          ${doneCount}/${totalCount} dates · ${allDates.filter(d=>!paidDates.includes(d)).length} remaining
+        </button>
+        <div style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
         ${allDates.slice(0, 6).map(d => {
           const isDone = paidDates.includes(d);
           const dDays  = Math.ceil((new Date(d) - new Date(today)) / 86400000);
@@ -3920,6 +3927,7 @@ function renderReminders() {
         ${allDates.length > 6 ? `<div style="font-size:11px;color:var(--ink-4);margin-top:6px;text-align:center">
           +${allDates.length - 6} more occurrences
         </div>` : ''}
+        </div>
       </div>` : '';
 
     /* Schedule chips */
