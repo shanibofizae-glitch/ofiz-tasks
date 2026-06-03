@@ -202,7 +202,8 @@ function renderDashboard() {
     })
     .slice(0, 8);
 
-  renderTaskList(priority, 'dash-task-list');
+  /* Render priority tasks as table */
+  _renderDashboardTaskTable(priority);
 
   const od = State.overdueTasks().length;
   document.querySelectorAll('.badge-overdue').forEach(el => {
@@ -236,6 +237,55 @@ function renderDashboard() {
   const expDocs = State.expiringDocuments(30).length;
   const db = document.getElementById('badge-documents');
   if (db) { db.textContent = expDocs || ''; db.style.display = expDocs ? '' : 'none'; }
+}
+
+/* ── Dashboard task table ───────────────────────────────── */
+function _renderDashboardTaskTable(tasks) {
+  const el = document.getElementById('dash-task-list');
+  if (!el) return;
+  if (!tasks.length) {
+    el.innerHTML = `<div class="empty-state"><i class="ti ti-clipboard-check"></i><p>All caught up!</p></div>`;
+    return;
+  }
+  const today    = new Date().toISOString().slice(0,10);
+  const canClose = State.user?.role !== 'viewer';
+  el.innerHTML = `
+  <div class="task-table-wrap">
+  <table class="task-table">
+  <thead><tr class="task-table-head">
+    <th></th><th>Task</th><th>Client</th>
+    <th>Due date</th><th>Status</th><th>Priority</th><th>Assignee</th><th></th>
+  </tr></thead>
+  <tbody>
+    ${tasks.map(t => {
+      const done   = t.status === 'done';
+      const over   = !done && t.dueDate && t.dueDate < today;
+      const client = State.getClient(t.clientId);
+      const user   = State.getUser(t.assigneeId);
+      const priCls = t.priority === 'high' ? 'pri-high' : t.priority === 'low' ? 'pri-low' : 'pri-medium';
+      return `
+      <tr class="task-row ${done?'done-row':''} ${priCls}" onclick="openTaskModal('${t.id}')">
+        <td><div class="task-check ${done?'checked':''}" style="width:15px;height:15px;font-size:8px"
+          onclick="event.stopPropagation();${done?'':canClose?`quickClose('${t.id}')`:''}" >
+          ${done?'<i class="ti ti-check" style="font-size:8px"></i>':''}
+        </div></td>
+        <td class="tt-title">${esc(t.title)}</td>
+        <td>${client?`<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>`:'—'}</td>
+        <td style="font-family:var(--mono);font-size:12px;color:${over?'var(--red)':'var(--ink-3)'};white-space:nowrap">${t.dueDate?fmtDate(t.dueDate):'—'}</td>
+        <td>${_ttStatusBadge(t, today)}</td>
+        <td><span style="font-size:12px;font-weight:700;color:${t.priority==='high'?'var(--red)':t.priority==='low'?'var(--ink-4)':'var(--amber)'}">
+          ${t.priority==='high'?'↑ High':t.priority==='low'?'↓ Low':'→ Med'}
+        </span></td>
+        <td>${user?`<div class="assign-chip ${user.avClass}" style="width:24px;height:24px;font-size:8.5px">${user.initials}</div>`:'—'}</td>
+        <td onclick="event.stopPropagation()">
+          <div class="tt-row-actions">
+            ${!done&&canClose?`<button class="btn btn-success btn-sm" style="padding:2px 7px;font-size:10px"
+              onclick="openTaskModal('${t.id}','close')">Close</button>`:''}
+          </div>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table></div>`;
 }
 
 /* ── Completion bar chart (canvas) ──────────────────────── */
