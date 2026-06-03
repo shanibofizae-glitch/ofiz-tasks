@@ -1808,6 +1808,8 @@ function renderPipelinesPage() {
   else renderKanbanBoard(State.activePipelineId);
 }
 
+let _pipTabDragId = null;
+
 function renderPipelineTabs() {
   const el = document.getElementById('pipeline-tabs');
   if (!el) return;
@@ -1817,39 +1819,55 @@ function renderPipelineTabs() {
     const cards   = State.tasks.filter(t => t.pipelineId === p.id && t.status !== 'done');
     const hasOD   = cards.some(t => t.dueDate < today);
     const cnt     = cards.length;
+    const isActive = p.id === State.activePipelineId;
     const cntHtml = cnt > 0
-      ? `<span style="font-size:10px;font-family:var(--mono);font-weight:600;padding:1px 6px;
-           border-radius:20px;background:${hasOD ? 'var(--red-light)' : 'var(--bg-active)'};
-           color:${hasOD ? 'var(--red)' : 'var(--ink-3)'}">${cnt}</span>`
+      ? `<span style="font-size:10px;font-family:var(--mono);font-weight:700;padding:1px 7px;
+           border-radius:20px;
+           background:${isActive ? 'rgba(255,255,255,0.25)' : hasOD ? '#fee2e2' : '#f1f5f9'};
+           color:${isActive ? '#fff' : hasOD ? '#ef4444' : '#64748b'}">${cnt}</span>`
       : '';
     const editHtml = isAdmin
       ? `<span onclick="event.stopPropagation();openEditPipelineModal('${p.id}')"
-           title="Edit pipeline"
-           style="margin-left:2px;color:var(--ink-4);cursor:pointer;font-size:13px;
-                  display:inline-flex;align-items:center;padding:2px 1px;border-radius:3px;
-                  transition:color 120ms"
-           onmouseover="this.style.color='var(--accent)'"
-           onmouseout="this.style.color='var(--ink-4)'">
-           <i class="ti ti-pencil"></i>
-         </span>`
-      : '';
+           style="opacity:0.6;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;
+                  transition:opacity 120ms" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">
+           <i class="ti ti-pencil"></i></span>` : '';
     const delHtml = isAdmin
       ? `<span onclick="event.stopPropagation();confirmDeletePipeline('${p.id}')"
-           title="Delete pipeline"
-           style="color:var(--ink-4);cursor:pointer;font-size:13px;
-                  display:inline-flex;align-items:center;padding:2px 1px;border-radius:3px;
-                  transition:color 120ms"
-           onmouseover="this.style.color='var(--red)'"
-           onmouseout="this.style.color='var(--ink-4)'">
-           <i class="ti ti-x"></i>
-         </span>`
-      : '';
+           style="opacity:0.5;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;
+                  transition:opacity 120ms" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">
+           <i class="ti ti-x"></i></span>` : '';
     return `
-    <div class="pipeline-tab ${p.id === State.activePipelineId ? 'active' : ''}"
-         onclick="switchPipeline('${p.id}')">
+    <div class="pipeline-tab ${isActive ? 'active' : ''}"
+         draggable="${isAdmin}"
+         onclick="switchPipeline('${p.id}')"
+         ondragstart="pipTabDragStart(event,'${p.id}')"
+         ondragend="pipTabDragEnd(event)"
+         ondragover="pipTabDragOver(event)"
+         ondrop="pipTabDrop(event,'${p.id}')">
       ${p.name} ${cntHtml} ${editHtml} ${delHtml}
     </div>`;
   }).join('');
+}
+
+function pipTabDragStart(e, id) {
+  _pipTabDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => e.target.classList.add('dragging-tab'), 0);
+}
+function pipTabDragEnd(e)   { e.target.classList.remove('dragging-tab'); document.querySelectorAll('.tab-drag-over').forEach(t=>t.classList.remove('tab-drag-over')); }
+function pipTabDragOver(e)  { e.preventDefault(); e.currentTarget.classList.add('tab-drag-over'); }
+async function pipTabDrop(e, targetId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('tab-drag-over');
+  if (!_pipTabDragId || _pipTabDragId === targetId) return;
+  const fi = State.pipelines.findIndex(p => p.id === _pipTabDragId);
+  const ti = State.pipelines.findIndex(p => p.id === targetId);
+  if (fi < 0 || ti < 0) return;
+  const [moved] = State.pipelines.splice(fi, 1);
+  State.pipelines.splice(ti, 0, moved);
+  _pipTabDragId = null;
+  renderPipelinesPage();
+  toast('Pipeline order updated');
 }
 
 async function confirmDeletePipeline(pipelineId) {
@@ -1901,16 +1919,24 @@ function renderKanbanBoard(pipelineId) {
     return;
   }
 
+  /* Default colors for stages without a custom color */
+  const DEFAULT_STAGE_COLORS = ['#6366f1','#8b5cf6','#10b981','#3b82f6','#f59e0b','#ec4899','#ef4444'];
+
   wrap.innerHTML = `<div class="kanban-board">${stages.map((stage, idx) => {
-    const allCards = pipeTasks.filter(t => t.pipelineStageId === stage.id);
-    const colStyle = stage.color ? `border-top:2px solid ${stage.color}` : '';
-    const dotHtml  = canEdit
+    const allCards  = pipeTasks.filter(t => t.pipelineStageId === stage.id);
+    const stageColor = stage.color || DEFAULT_STAGE_COLORS[idx % DEFAULT_STAGE_COLORS.length];
+    /* Colorful gradient header */
+    const colStyle  = `border-top: 3px solid ${stageColor}`;
+    const hdrBg     = `background: linear-gradient(135deg, ${stageColor}18 0%, ${stageColor}08 100%);`;
+    const dotHtml   = canEdit
       ? `<span class="stage-color-dot ${stage.color ? '' : 'empty'}"
-           style="${stage.color ? `background:${stage.color}` : ''}"
+           style="background:${stageColor};opacity:${stage.color?1:0.4}"
            onclick="openStageColorPicker('${stage.id}', this)" title="Change colour"></span>`
-      : (stage.color ? `<span class="stage-color-dot" style="background:${stage.color}"></span>` : '');
+      : `<span class="stage-color-dot" style="background:${stageColor}"></span>`;
     const slaHtml = stage.targetDays
-      ? `<span style="font-size:9.5px;color:var(--ink-4);font-family:var(--mono);margin-left:2px">${stage.targetDays}d</span>`
+      ? `<span style="font-size:9px;font-weight:700;font-family:var(--mono);
+           background:rgba(0,0,0,0.08);border-radius:20px;padding:1px 6px;
+           color:${stageColor};opacity:0.9">${stage.targetDays}d</span>`
       : '';
 
     /* Render cards with optional swim lanes */
@@ -1944,11 +1970,11 @@ function renderKanbanBoard(pipelineId) {
 
     return `
     <div class="kanban-col" style="${colStyle}">
-      <div class="kanban-col-head">
+      <div class="kanban-col-head" style="${hdrBg}">
         ${dotHtml}
-        <span class="kanban-col-title">${stage.name}</span>
+        <span class="kanban-col-title" style="color:${stageColor}">${stage.name}</span>
         ${slaHtml}
-        <span class="kanban-col-count" style="margin-left:auto">${allCards.length}</span>
+        <span class="kanban-col-count" style="margin-left:auto;background:${stageColor}22;color:${stageColor}">${allCards.length}</span>
       </div>
       <div class="kanban-col-body"
            ondragover="kanbanDragOver(event)"
@@ -2008,38 +2034,64 @@ function renderKanbanCard(task, currentStage, allStages, today, canEdit) {
       <div style="height:100%;width:${Math.round(stDone/stTotal*100)}%;background:${stDone===stTotal?'var(--accent)':'var(--amber)'};border-radius:2px"></div>
     </div>` : '';
 
+  /* Card left stripe color by priority */
+  const cardAccent = task.priority === 'high' ? '#ef4444' : task.priority === 'low' ? '#10b981' : '#6366f1';
+
   return `
   <div class="kanban-card ${over?'overdue':''} ${done?'done':''} ${isSelected?'kb-selected':''}"
+       style="--card-accent:${cardAccent}"
        onclick="${_kbBulkMode ? `toggleKanbanCardSelect('${task.id}')` : `openTaskModal('${task.id}')`}"
        draggable="${!_kbBulkMode}"
        ondragstart="kanbanDragStart(event,'${task.id}')"
        ondragend="kanbanDragEnd(event)">
-    <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+
+    <!-- Priority stripe -->
+    <div style="position:absolute;left:0;top:0;bottom:0;width:3px;
+      background:${over?'#ef4444':cardAccent};border-radius:12px 0 0 12px"></div>
+
+    <!-- Header row: select + title -->
+    <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:8px;padding-left:2px">
       ${selectHtml}
       <div class="kanban-card-title" style="flex:1">${esc(task.title)}</div>
     </div>
-    <div class="kanban-card-meta">
-      ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
-      ${priorityTag(task.priority)}
-      ${over ? `<span class="tag tag-overdue">Overdue</span>` : ''}
+
+    <!-- Tags row -->
+    <div class="kanban-card-meta" style="padding-left:2px">
+      ${client ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;
+        background:${client.bg};color:${client.color}">${client.short}</span>` : ''}
+      ${over ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;
+        background:#fee2e2;color:#ef4444">Overdue</span>` : ''}
       ${ageBadge}
     </div>
+
+    <!-- Sub-task progress -->
     ${stBar}
-    <div class="kanban-card-foot" style="margin-top:7px">
-      <span class="kanban-due ${over?'late':''}">${fmtDate(task.dueDate)}</span>
-      ${user ? `<div class="assign-chip ${user.avClass}" title="${user.name}">${user.initials}</div>` : ''}
+
+    <!-- Footer: date + assignee -->
+    <div style="display:flex;align-items:center;justify-content:space-between;
+      margin-top:10px;padding-top:8px;border-top:1px solid #f1f5f9;padding-left:2px">
+      <span class="kanban-due ${over?'late':''}" style="display:flex;align-items:center;gap:4px">
+        <i class="ti ti-calendar-event" style="font-size:10px"></i>
+        ${fmtDate(task.dueDate)}
+      </span>
+      ${user ? `<div class="assign-chip ${user.avClass}" title="${user.name}"
+        style="width:22px;height:22px;font-size:8px">${user.initials}</div>` : ''}
     </div>
+
     ${stGateHtml ? `<div style="margin-top:6px">${stGateHtml}</div>` : ''}
+
+    <!-- Move buttons -->
     ${canEdit && !done && !_kbBulkMode ? `
-    <div style="display:flex;gap:5px;margin-top:8px;border-top:1px solid var(--border);padding-top:7px">
+    <div style="display:flex;gap:5px;margin-top:8px;padding-left:2px">
       ${prevStage ? `<button class="stage-move-btn" onclick="event.stopPropagation();moveCard('${task.id}','${prevStage.id}')">
-        <i class="ti ti-arrow-left" style="font-size:11px"></i> ${prevStage.name}
+        <i class="ti ti-arrow-left" style="font-size:10px"></i>
       </button>` : ''}
-      ${nextStage ? `<button class="stage-move-btn" style="margin-left:auto"
+      ${nextStage ? `<button class="stage-move-btn" style="margin-left:auto;background:#eef2ff;border-color:#6366f1;color:#6366f1"
         onclick="event.stopPropagation();${gated?`confirmGatedMove('${task.id}','${nextStage.id}')`:``}${!gated?`moveCard('${task.id}','${nextStage.id}')`:``}">
-        ${nextStage.name} <i class="ti ti-arrow-right" style="font-size:11px"></i>
-      </button>` : `<span style="margin-left:auto;font-size:11px;color:var(--green);font-weight:500">
-        <i class="ti ti-check" style="font-size:11px"></i> Final stage
+        ${nextStage.name} <i class="ti ti-arrow-right" style="font-size:10px"></i>
+      </button>` : `<span style="margin-left:auto;font-size:11px;color:#10b981;font-weight:700;
+        display:flex;align-items:center;gap:4px">
+        <i class="ti ti-check"></i> Final stage
       </span>`}
     </div>` : ''}
   </div>`;
