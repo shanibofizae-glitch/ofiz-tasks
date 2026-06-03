@@ -474,14 +474,41 @@ function setFilter(key, val, el) {
 }
 
 /* ── Clients page ───────────────────────────────────────── */
-let _dragClientId = null;
+let _dragClientId    = null;
+let _activeClientTag = null;
+
+function setClientTagFilter(tag) {
+  _activeClientTag = _activeClientTag === tag ? null : tag; /* toggle */
+  renderClients();
+  const clearBtn = document.getElementById('client-tag-clear');
+  if (clearBtn) clearBtn.style.display = _activeClientTag ? '' : 'none';
+}
+
+function renderClientTagFilter() {
+  const bar   = document.getElementById('client-tag-filter-bar');
+  const chips = document.getElementById('client-tag-chips');
+  if (!bar || !chips) return;
+  const tags = State.allClientTags();
+  if (!tags.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  chips.innerHTML = tags.map(t => `
+    <button class="client-tag" onclick="setClientTagFilter('${esc(t)}')"
+      style="${_activeClientTag===t?'background:var(--ink);color:var(--bg-sidebar);border-color:var(--ink)':''}">
+      ${esc(t)}
+    </button>`).join('');
+}
 
 function renderClients() {
   const el = document.getElementById('client-grid');
   if (!el) return;
 
-  const health  = State.clientHealth()
+  renderClientTagFilter();
+
+  let health = State.clientHealth()
     .sort((a,b) => (State.getClient(a.id)?.sortOrder ?? 999) - (State.getClient(b.id)?.sortOrder ?? 999));
+  if (_activeClientTag) {
+    health = health.filter(c => (State.getClient(c.id)?.tags||[]).includes(_activeClientTag));
+  }
   const isAdmin = State.user?.role === 'admin';
 
   el.innerHTML = health.map(c => {
@@ -539,6 +566,10 @@ function renderClients() {
           display:flex;align-items:center;gap:4px">
           <i class="ti ti-receipt" style="font-size:11px"></i> VAT due ${fmtDate(vat)}
         </div>` : ''}
+        ${(State.getClient(c.id)?.tags||[]).length ? `
+        <div class="client-tags-row">
+          ${(State.getClient(c.id).tags).map(t => `<span class="client-tag">${esc(t)}</span>`).join('')}
+        </div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -594,6 +625,7 @@ function openNewClientModal() {
   document.getElementById('cf-name').value  = '';
   document.getElementById('cf-short').value = '';
   document.getElementById('cf-color').value = '#4f8ef7';
+  document.getElementById('cf-tags').value  = '';
   document.getElementById('client-form-modal').classList.add('open');
 }
 
@@ -616,6 +648,7 @@ async function submitClientForm() {
   const name  = document.getElementById('cf-name').value.trim();
   const short = document.getElementById('cf-short').value.trim().toUpperCase();
   const color = document.getElementById('cf-color').value;
+  const tags  = (document.getElementById('cf-tags').value||'').split(',').map(t=>t.trim()).filter(Boolean);
 
   if (!name || !short) {
     toast('Please fill in name and short code', 'error');
@@ -634,7 +667,7 @@ async function submitClientForm() {
   const bg = hexToRgba(color, 0.12);
 
   if (editClientSettingsId) {
-    await State.updateClient(editClientSettingsId, { name, short, color, bg });
+    await State.updateClient(editClientSettingsId, { name, short, color, bg, tags });
     if (saveBtn) { saveBtn.disabled = false; }
     closeClientForm();
     renderSettingsClients();
@@ -642,7 +675,7 @@ async function submitClientForm() {
     renderClients();
     toast('Client updated!');
   } else {
-    const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true };
+    const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true, tags, sortOrder: State.clients.length };
     State.clients.push(newClient);
     if (State.useSheets) {
       await Sheets._post({ action:'append', tab:'Clients', row:Sheets._clientRow(newClient) });
@@ -2515,6 +2548,7 @@ function openEditClientModal(clientId) {
   document.getElementById('cf-name').value  = c.name;
   document.getElementById('cf-short').value = c.short;
   document.getElementById('cf-color').value = c.color;
+  document.getElementById('cf-tags').value  = (c.tags||[]).join(', ');
   modal.classList.add('open');
 }
 
@@ -3392,6 +3426,7 @@ function _renderCPOverview(clientId) {
   const hrs      = State.clientBillableHours(clientId);
   const vat      = State.vatNextDue(clientId);
   const today    = new Date().toISOString().slice(0,10);
+  const isAdmin  = State.user?.role === 'admin';
   const assignee = State.getUser(c.assignedAccountantId);
   const docs     = State.getClientDocs(clientId);
   const expDocs  = docs.filter(d => d.expiryDate <= new Date(Date.now()+30*86400000).toISOString().slice(0,10));
@@ -3479,12 +3514,47 @@ function _renderCPOverview(clientId) {
       <div class="cp-grid">
         ${_cpField('Trade License', c.tradeLicense)}
         ${_cpField('TRN', c.trn)}
-        ${_cpField('VAT Number', c.vatNumber)}
+        ${_cpField('CT Number', c.corporateTaxNo)}
         ${_cpField('Incorporated', c.incorporationDate ? fmtDate(c.incorporationDate) : '')}
         ${_cpField('Client since', c.clientSince ? fmtDate(c.clientSince) : '')}
         ${_cpField('Account manager', assignee?.name || '')}
       </div>
     </div>
+
+    <!-- VAT & CT filing -->
+    ${(c.vatRegistered || c.ctAnniversaryDate) ? `
+    <div class="cp-section">
+      <div class="cp-section-title"><i class="ti ti-receipt" style="font-size:11px"></i> Tax filing</div>
+      ${c.vatRegistered ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:12.5px;font-weight:500;color:var(--ink)">VAT Return</div>
+          <div style="font-size:11px;color:var(--ink-3)">Quarterly — next due: ${vat ? fmtDate(vat) : '—'}</div>
+        </div>
+        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="createVatFilingReminders('${c.id}')">
+          <i class="ti ti-bell-plus"></i> Create reminders
+        </button>` : ''}
+      </div>` : ''}
+      ${c.ctAnniversaryDate ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+        <div>
+          <div style="font-size:12.5px;font-weight:500;color:var(--ink)">Corporate Tax</div>
+          <div style="font-size:11px;color:var(--ink-3)">Yearly — year-end: ${fmtDate(c.ctAnniversaryDate)}</div>
+        </div>
+        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="createCtFilingReminder('${c.id}')">
+          <i class="ti ti-bell-plus"></i> Create reminder
+        </button>` : ''}
+      </div>` : ''}
+    </div>` : ''}
+
+    <!-- Tags -->
+    ${(c.tags||[]).length ? `
+    <div class="cp-section">
+      <div class="cp-section-title"><i class="ti ti-tag" style="font-size:11px"></i> Tags</div>
+      <div class="client-tags-row">
+        ${(c.tags).map(t => `<span class="client-tag">${esc(t)}</span>`).join('')}
+      </div>
+    </div>` : ''}
 
     <!-- Contact -->
     <div class="cp-section">
@@ -3535,6 +3605,17 @@ function _renderCPOverview(clientId) {
   }
 }
 
+async function createVatFilingReminders(clientId) {
+  const n = await State.createVatFilingReminders(clientId);
+  toast(`${n} quarterly VAT reminders created!`);
+}
+
+async function createCtFilingReminder(clientId) {
+  const n = await State.createCtFilingReminder(clientId);
+  if (n) toast('Corporate Tax reminder created!');
+  else toast('Set CT year-end date in profile first', 'error');
+}
+
 function _cpField(label, value) {
   const empty = !value || !String(value).trim();
   return `<div class="cp-field">
@@ -3549,14 +3630,21 @@ function _renderClientProfileEdit(clientId) {
   el.innerHTML = `
   <div style="padding:20px 22px">
     <div class="form-row">
+      <div class="form-group"><label class="form-label">Client name</label>
+        <input type="text" id="cpe-name" class="form-input" value="${esc(c.name||'')}"></div>
+      <div class="form-group"><label class="form-label">Short code</label>
+        <input type="text" id="cpe-short" class="form-input" value="${esc(c.short||'')}" maxlength="5" style="font-family:var(--mono);text-transform:uppercase"></div>
+    </div>
+    <div class="divider"></div>
+    <div class="form-row">
       <div class="form-group"><label class="form-label">Trade License</label>
         <input type="text" id="cpe-tl" class="form-input" value="${esc(c.tradeLicense||'')}"></div>
       <div class="form-group"><label class="form-label">TRN</label>
         <input type="text" id="cpe-trn" class="form-input" value="${esc(c.trn||'')}" style="font-family:var(--mono)"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">VAT Number</label>
-        <input type="text" id="cpe-vat" class="form-input" value="${esc(c.vatNumber||'')}" style="font-family:var(--mono)"></div>
+      <div class="form-group"><label class="form-label">CT Number</label>
+        <input type="text" id="cpe-vat" class="form-input" value="${esc(c.corporateTaxNo||'')}" style="font-family:var(--mono)"></div>
       <div class="form-group"><label class="form-label">Classification</label>
         <select id="cpe-class" class="form-select">
           <option value="Mainland" ${(c.classification||'Mainland')==='Mainland'?'selected':''}>Mainland</option>
@@ -3607,6 +3695,21 @@ function _renderClientProfileEdit(clientId) {
         </label>
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">VAT registration date</label>
+        <input type="date" id="cpe-vatstart" class="form-input" value="${c.vatStartDate||''}">
+        <div style="font-size:10.5px;color:var(--ink-3);margin-top:3px">Used to calculate quarterly VAT due dates</div>
+      </div>
+      <div class="form-group"><label class="form-label">CT year-end date</label>
+        <input type="date" id="cpe-ctdate" class="form-input" value="${c.ctAnniversaryDate||''}">
+        <div style="font-size:10.5px;color:var(--ink-3);margin-top:3px">Corporate tax fiscal year-end</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tags <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(comma separated)</span></label>
+      <input type="text" id="cpe-tags" class="form-input" value="${esc((c.tags||[]).join(', '))}"
+        placeholder="e.g. VAT, WPS, Payroll, Audit, Retail">
+    </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
       <button class="btn btn-ghost" onclick="toggleClientProfileEdit()">Cancel</button>
       <button class="btn btn-primary" onclick="saveClientProfile('${clientId}')">
@@ -3617,10 +3720,13 @@ function _renderClientProfileEdit(clientId) {
 }
 
 async function saveClientProfile(clientId) {
+  const tagsRaw = document.getElementById('cpe-tags')?.value || '';
   const patch = {
+    name:                 document.getElementById('cpe-name')?.value.trim() || State.getClient(clientId)?.name,
+    short:                (document.getElementById('cpe-short')?.value.trim() || State.getClient(clientId)?.short).toUpperCase(),
     tradeLicense:         document.getElementById('cpe-tl').value.trim(),
     trn:                  document.getElementById('cpe-trn').value.trim(),
-    vatNumber:            document.getElementById('cpe-vat').value.trim(),
+    corporateTaxNo:       document.getElementById('cpe-vat').value.trim(),
     classification:       document.getElementById('cpe-class').value,
     incorporationDate:    document.getElementById('cpe-inc').value,
     clientSince:          document.getElementById('cpe-since').value,
@@ -3632,6 +3738,9 @@ async function saveClientProfile(clientId) {
     vatRegistered:        document.getElementById('cpe-vat-reg').checked,
     wpsRequired:          document.getElementById('cpe-wps').checked,
     payrollManaged:       document.getElementById('cpe-pay').checked,
+    vatStartDate:         document.getElementById('cpe-vatstart')?.value || '',
+    ctAnniversaryDate:    document.getElementById('cpe-ctdate')?.value || '',
+    tags:                 tagsRaw.split(',').map(t=>t.trim()).filter(Boolean),
   };
   const btn = document.querySelector('#cp-body .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }

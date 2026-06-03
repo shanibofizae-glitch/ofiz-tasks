@@ -52,11 +52,11 @@ const DEMO = {
     { id:'u3', name:'Assistant 1', email:'izofficeac@gmail.com',    role:'viewer',    initials:'RA', avClass:'av-viewer',password:'Admin1234'  },
   ],
   clients: [
-    { id:'c1', name:'Sorry Guys Marketing Agency', short:'SGMA', color:'#4f8ef7', bg:'rgba(79,142,247,0.12)',  active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
-    { id:'c2', name:'The Den DXB',                 short:'DEN',  color:'#a78bfa', bg:'rgba(167,139,250,0.12)', active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
-    { id:'c3', name:'Into The Room',               short:'ITR',  color:'#34c27a', bg:'rgba(52,194,122,0.12)',  active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
-    { id:'c4', name:'Trade Capital Partners',      short:'TCP',  color:'#f5a623', bg:'rgba(245,166,35,0.12)',  active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
-    { id:'c5', name:'Global Data Comm. Services',  short:'GDCS', color:'#f05454', bg:'rgba(240,84,84,0.12)',   active:true, tradeLicense:'', trn:'', vatNumber:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'' },
+    { id:'c1', name:'Sorry Guys Marketing Agency', short:'SGMA', color:'#4f8ef7', bg:'rgba(79,142,247,0.12)',  active:true, tradeLicense:'', trn:'', corporateTaxNo:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'', sortOrder:0, vatStartDate:'', ctAnniversaryDate:'', tags:[] },
+    { id:'c2', name:'The Den DXB',                 short:'DEN',  color:'#a78bfa', bg:'rgba(167,139,250,0.12)', active:true, tradeLicense:'', trn:'', corporateTaxNo:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'', sortOrder:1, vatStartDate:'', ctAnniversaryDate:'', tags:[] },
+    { id:'c3', name:'Into The Room',               short:'ITR',  color:'#34c27a', bg:'rgba(52,194,122,0.12)',  active:true, tradeLicense:'', trn:'', corporateTaxNo:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'', sortOrder:2, vatStartDate:'', ctAnniversaryDate:'', tags:[] },
+    { id:'c4', name:'Trade Capital Partners',      short:'TCP',  color:'#f5a623', bg:'rgba(245,166,35,0.12)',  active:true, tradeLicense:'', trn:'', corporateTaxNo:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'', sortOrder:3, vatStartDate:'', ctAnniversaryDate:'', tags:[] },
+    { id:'c5', name:'Global Data Comm. Services',  short:'GDCS', color:'#f05454', bg:'rgba(240,84,84,0.12)',   active:true, tradeLicense:'', trn:'', corporateTaxNo:'', incorporationDate:'', contactName:'', contactPhone:'', contactEmail:'', contactWhatsapp:'', classification:'Mainland', vatRegistered:false, wpsRequired:false, payrollManaged:false, assignedAccountantId:'', clientSince:'', sortOrder:4, vatStartDate:'', ctAnniversaryDate:'', tags:[] },
   ],
   tasks: [
     { id:'t1',  title:'Bank reconciliation',          clientId:'c2', type:'monthly', status:'overdue',  priority:'high',   assigneeId:'u2', dueDate:'2026-05-30', notes:'Waiting for May bank statement.',       createdAt:'2026-05-01', closedAt:null,         closeComment:'' },
@@ -194,12 +194,14 @@ const Sheets = {
   _clientRow(c) {
     return [
       c.id, c.name, c.short, c.color, c.bg, String(c.active),
-      c.tradeLicense||'', c.trn||'', c.vatNumber||'', c.incorporationDate||'',
+      c.tradeLicense||'', c.trn||'', c.corporateTaxNo||'', c.incorporationDate||'',
       c.contactName||'', c.contactPhone||'', c.contactEmail||'', c.contactWhatsapp||'',
       c.classification||'Mainland', String(c.vatRegistered||false),
       String(c.wpsRequired||false), String(c.payrollManaged||false),
       c.assignedAccountantId||'', c.clientSince||'',
       c.sortOrder !== undefined ? String(c.sortOrder) : '',
+      c.vatStartDate||'', c.ctAnniversaryDate||'',
+      Array.isArray(c.tags) ? c.tags.join(',') : (c.tags||''),
     ];
   },
 
@@ -462,7 +464,7 @@ const Sheets = {
 
   /* Load all clients from Clients tab on login */
   async loadClients() {
-    const rows = await this._get('Clients!A2:U');
+    const rows = await this._get('Clients!A2:Y');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
@@ -475,7 +477,7 @@ const Sheets = {
         active:               r[5]  !== 'false',
         tradeLicense:         r[6]  || '',
         trn:                  r[7]  || '',
-        vatNumber:            r[8]  || '',
+        corporateTaxNo:       r[8]  || '',   /* col I — was vatNumber */
         incorporationDate:    r[9]  || '',
         contactName:          r[10] || '',
         contactPhone:         r[11] || '',
@@ -488,6 +490,9 @@ const Sheets = {
         assignedAccountantId: r[18] || '',
         clientSince:          r[19] || '',
         sortOrder:            r[20] ? Number(r[20]) : 999,
+        vatStartDate:         r[21] || '',   /* col V — YYYY-MM-DD of first VAT registration */
+        ctAnniversaryDate:    r[22] || '',   /* col W — YYYY-MM-DD of CT year-end */
+        tags:                 r[23] ? r[23].split(',').map(t=>t.trim()).filter(Boolean) : [],
       }));
   },
 
@@ -1392,6 +1397,82 @@ State.clientBillableHours = function(clientId) {
     lastMonth: logs.filter(l => l.date?.startsWith(lastM)).reduce((s,l)=>s+l.hours,0),
     total:     logs.reduce((s,l)=>s+l.hours,0),
   };
+};
+
+/* ─── Client tags ────────────────────────────────────────── */
+State.allClientTags = function() {
+  const tags = new Set();
+  this.clients.forEach(c => (c.tags||[]).forEach(t => tags.add(t)));
+  return [...tags].sort();
+};
+
+/* ─── VAT / CT filing reminders ─────────────────────────── */
+State.nextVatDueDates = function(clientId) {
+  /* UAE VAT quarters: Q1 ends Mar, Q2 ends Jun, Q3 ends Sep, Q4 ends Dec — due 28 days after */
+  const today = new Date();
+  const dates = [];
+  const year  = today.getFullYear();
+  const quarterEnds = [
+    new Date(year, 2, 31), new Date(year, 5, 30),
+    new Date(year, 8, 30), new Date(year, 11, 31),
+    new Date(year+1, 2, 31), new Date(year+1, 5, 30),
+  ];
+  quarterEnds.forEach(qe => {
+    const due = new Date(qe.getTime() + 28*86400000);
+    if (due >= today) dates.push(due.toISOString().slice(0,10));
+  });
+  return dates.slice(0, 4); /* next 4 quarters */
+};
+
+State.createVatFilingReminders = async function(clientId) {
+  const c     = this.getClient(clientId);
+  if (!c?.vatRegistered) return 0;
+  const dates = this.nextVatDueDates(clientId);
+  for (const date of dates) {
+    await this.addReminder({
+      title:          `VAT Return Filing — ${c.short}`,
+      category:       'VAT Payment',
+      amount:         null,
+      clientId,
+      eventDate:      date,
+      remind1:        14, remind2:7, remind3:1,
+      notifyEmail:    true, notifyTelegram:true,
+      notes:          'Quarterly VAT return — UAE FTA deadline',
+      recurrence:     'none',
+      recurrenceConfig: null,
+      paidDates:      [],
+      assignedUserId: this.user?.id || '',
+    });
+  }
+  return dates.length;
+};
+
+State.createCtFilingReminder = async function(clientId) {
+  const c = this.getClient(clientId);
+  if (!c?.ctAnniversaryDate) return 0;
+  /* CT filing: typically 9 months after year-end */
+  const yearEnd = new Date(c.ctAnniversaryDate);
+  const dueDate = new Date(yearEnd.getFullYear()+1, yearEnd.getMonth()+9, yearEnd.getDate());
+  const today   = new Date();
+  /* If past, move to next year */
+  const filing  = dueDate < today
+    ? new Date(dueDate.setFullYear(dueDate.getFullYear()+1))
+    : dueDate;
+  await this.addReminder({
+    title:          `Corporate Tax Filing — ${c.short}`,
+    category:       'Tax Payment',
+    amount:         null,
+    clientId,
+    eventDate:      filing.toISOString().slice(0,10),
+    remind1:        30, remind2:14, remind3:7,
+    notifyEmail:    true, notifyTelegram:true,
+    notes:          `Annual CT return. CT No: ${c.corporateTaxNo||'—'}`,
+    recurrence:     'none',
+    recurrenceConfig: null,
+    paidDates:      [],
+    assignedUserId: this.user?.id || '',
+  });
+  return 1;
 };
 
 State.expiringDocuments = function(days = 30) {

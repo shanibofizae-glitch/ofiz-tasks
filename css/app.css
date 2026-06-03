@@ -34,8 +34,8 @@
   /* Semantic */
   --red:          #c0392b;
   --red-light:    #fdf0ee;
-  --amber:        #b7691a;
-  --amber-light:  #fef6e9;
+  --amber:        #92460a;  /* darkened for better contrast */
+  --amber-light:  #fef0e0;
   --blue:         #1a5fb4;
   --blue-light:   #eef3fc;
   --green:        #1e6f3e;
@@ -868,15 +868,17 @@ img { display: block; max-width: 100%; }
 }
 .client-name-block { flex: 1; min-width: 0; }
 .client-name {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
   color: var(--ink);
   letter-spacing: -0.3px;
-  line-height: 1.3;
+  line-height: 1.35;
   margin-bottom: 2px;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 .client-sub {
   font-size: 10.5px;
@@ -1576,6 +1578,17 @@ img { display: block; max-width: 100%; }
   border-bottom: 1px solid var(--border);
 }
 .doc-group-name { font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.6px; }
+
+/* ─── Client tag chips ────────────────────────────────── */
+.client-tag {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 600;
+  padding: 1px 7px; border-radius: 20px;
+  background: var(--bg-active); color: var(--ink-2);
+  border: 1px solid var(--border-md);
+  white-space: nowrap;
+}
+.client-tags-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 
 /* ═══════════════════════════════════════════════════════════
    DRAG & DROP
