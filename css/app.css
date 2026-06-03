@@ -484,6 +484,10 @@ img { display: block; max-width: 100%; }
 .task-card.done { background: var(--bg); opacity: 0.55; }
 .task-card.done:hover { opacity: 0.7; }
 
+/* 1 card alone OR last card in odd group → full row. Pairs → 50% each */
+.date-group-section > .task-card:last-child:nth-child(odd),
+.task-list > .task-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
 /* Row 1: checkbox · title · assignee avatar */
 .tc-top {
   display: flex;
