@@ -96,14 +96,15 @@ img { display: block; max-width: 100%; }
    DARK SIDEBAR
    ═══════════════════════════════════════════════════════════ */
 .sidebar {
-  background: #0f172a !important;
+  background: linear-gradient(180deg, #0f172a 0%, #160f2e 60%, #0f172a 100%) !important;
   border-right: 1px solid #1e293b !important;
+  box-shadow: 4px 0 24px rgba(99,102,241,0.08);
 }
-.sidebar-logo { border-bottom: 1px solid #1e293b; }
+.sidebar-logo { border-bottom: 1px solid rgba(255,255,255,0.05); }
 .logo-mark {
   background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
   color: #fff !important;
-  box-shadow: 0 4px 12px rgba(99,102,241,0.4);
+  box-shadow: 0 0 20px rgba(99,102,241,0.6), 0 4px 12px rgba(99,102,241,0.3);
 }
 .logo-name { color: #f1f5f9 !important; }
 .logo-sub  { color: #64748b !important; }
@@ -120,11 +121,13 @@ img { display: block; max-width: 100%; }
   color: #f1f5f9 !important;
 }
 .nav-item.active {
-  background: rgba(99,102,241,0.15) !important;
+  background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(99,102,241,0.05)) !important;
   color: #a5b4fc !important;
   font-weight: 600;
+  border-left: 2px solid #6366f1;
+  padding-left: 9px;
 }
-.nav-item.active::before { background: #6366f1 !important; }
+.nav-item.active::before { display: none; }
 .nav-item i { color: inherit !important; }
 .nav-item.active i { color: #818cf8 !important; opacity: 1 !important; }
 
@@ -2419,20 +2422,40 @@ kbd {
 @media (max-width: 700px) { .chat-panel { width: 100%; } }
 
 /* ═══════════════════════════════════════════════════════════
-   VIBRANT STAT CARDS
+   COLOURFUL STAT CARDS — solid gradient backgrounds
    ═══════════════════════════════════════════════════════════ */
-.stat-card:nth-child(1) { border-top: 3px solid #6366f1; }
-.stat-card:nth-child(2) { border-top: 3px solid #f59e0b; }
-.stat-card:nth-child(3) { border-top: 3px solid #ef4444; }
-.stat-card:nth-child(4) { border-top: 3px solid #10b981; }
+.stat-card:nth-child(1) {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  border: none; color: #fff;
+}
+.stat-card:nth-child(2) {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none; color: #fff;
+}
+.stat-card:nth-child(3) {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border: none; color: #fff;
+}
+.stat-card:nth-child(4) {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none; color: #fff;
+}
+.stat-card:nth-child(1):hover,
+.stat-card:nth-child(2):hover,
+.stat-card:nth-child(3):hover,
+.stat-card:nth-child(4):hover { transform: translateY(-3px); }
+.stat-card:nth-child(1):hover { box-shadow: 0 8px 30px rgba(99,102,241,0.5); }
+.stat-card:nth-child(2):hover { box-shadow: 0 8px 30px rgba(245,158,11,0.5); }
+.stat-card:nth-child(3):hover { box-shadow: 0 8px 30px rgba(239,68,68,0.5); }
+.stat-card:nth-child(4):hover { box-shadow: 0 8px 30px rgba(16,185,129,0.5); }
 
-.stat-dot.blue   { background: #3b82f6; box-shadow: 0 0 8px rgba(59,130,246,0.5); }
-.stat-dot.amber  { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.5); }
-.stat-dot.red    { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.5); }
-.stat-dot.green  { background: #10b981; box-shadow: 0 0 8px rgba(16,185,129,0.5); }
-
-.stat-value { color: var(--ink); background: none; }
-.stat-label-top { color: var(--ink-2); font-weight: 700; }
+.stat-card .stat-label-top { color: rgba(255,255,255,0.8) !important; font-weight: 700; }
+.stat-card .stat-value      { color: #fff !important; }
+.stat-card .stat-sub        { color: rgba(255,255,255,0.65) !important; }
+.stat-dot.blue   { background: rgba(255,255,255,0.5); box-shadow: none; }
+.stat-dot.amber  { background: rgba(255,255,255,0.5); box-shadow: none; }
+.stat-dot.red    { background: rgba(255,255,255,0.5); box-shadow: none; }
+.stat-dot.green  { background: rgba(255,255,255,0.5); box-shadow: none; }
 
 /* ═══════════════════════════════════════════════════════════
    VIBRANT TAGS
@@ -2526,12 +2549,113 @@ kbd {
 .progress-fill      { background: #6366f1 !important; }
 
 /* ═══════════════════════════════════════════════════════════
-   TOPBAR — white with subtle gradient
+   GRADIENT PAGE TITLE
+   ═══════════════════════════════════════════════════════════ */
+.page-title {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800 !important;
+  font-size: 16px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOPBAR — frosted glass
    ═══════════════════════════════════════════════════════════ */
 .topbar {
-  background: rgba(255,255,255,0.95) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.85) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255,255,255,0.6) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GLASS MODALS
+   ═══════════════════════════════════════════════════════════ */
+.modal {
+  background: rgba(255,255,255,0.96) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.8) !important;
+}
+.modal-head { background: #fff; }
+.modal-footer { background: #f8fafc; }
+
+/* ═══════════════════════════════════════════════════════════
+   SEARCH BOX — glowing focus
+   ═══════════════════════════════════════════════════════════ */
+.search-box:focus-within {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
+  background: #fff !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AVATARS — gradient backgrounds
+   ═══════════════════════════════════════════════════════════ */
+.av-admin  { background: linear-gradient(135deg, #6366f1, #4f46e5) !important; color: #fff !important; border: none !important; }
+.av-asst   { background: linear-gradient(135deg, #10b981, #059669) !important; color: #fff !important; border: none !important; }
+.av-viewer { background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #fff !important; border: none !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   KANBAN COLUMNS — gradient headers
+   ═══════════════════════════════════════════════════════════ */
+.kanban-col-head {
+  background: #f8fafc;
+  border-bottom: 2px solid #e2e8f0;
+}
+.kanban-col-title { font-weight: 700; color: #0f172a; }
+
+/* ═══════════════════════════════════════════════════════════
+   ROLE PILLS — gradient
+   ═══════════════════════════════════════════════════════════ */
+.role-admin  { background: linear-gradient(135deg, #6366f1, #4f46e5) !important; color: #fff !important; }
+.role-asst   { background: linear-gradient(135deg, #10b981, #059669) !important; color: #fff !important; border: none !important; }
+.role-viewer { background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #fff !important; border: none !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   CONTENT BACKGROUND — subtle mesh
+   ═══════════════════════════════════════════════════════════ */
+body {
+  background: #f1f5f9;
+  background-image:
+    radial-gradient(at 20% 20%, rgba(99,102,241,0.04) 0%, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(139,92,246,0.04) 0%, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(236,72,153,0.02) 0%, transparent 60%);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PIPELINE TABS — pill style
+   ═══════════════════════════════════════════════════════════ */
+.pipeline-tab.active {
+  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  box-shadow: 0 2px 10px rgba(99,102,241,0.35);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PROGRESS BARS — gradient
+   ═══════════════════════════════════════════════════════════ */
+.progress-fill { background: linear-gradient(90deg, #6366f1, #8b5cf6) !important; }
+.subtask-progress-fill { background: linear-gradient(90deg, #6366f1, #10b981) !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   LOGIN PAGE ANIMATION
+   ═══════════════════════════════════════════════════════════ */
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+.login-page {
+  background: linear-gradient(-45deg, #0f172a, #1e1b4b, #160a2e, #0f172a) !important;
+  background-size: 400% 400% !important;
+  animation: gradientShift 8s ease infinite;
 }
 
 /* ═══════════════════════════════════════════════════════════
