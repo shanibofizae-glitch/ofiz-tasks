@@ -345,10 +345,11 @@ const Sheets = {
       rem.recurrence||'none',
       rem.recurrenceConfig ? JSON.stringify(rem.recurrenceConfig) : '',
       rem.paidDates?.length ? JSON.stringify(rem.paidDates) : '',
+      rem.assignedUserId||'',
     ];
   },
   async loadReminders() {
-    const rows = await this._get('Reminders!A2:Q');
+    const rows = await this._get('Reminders!A2:R');
     if (!rows || !rows.length) return [];
     return rows.filter(r => r[0]).map(r => ({
       id:               r[0]  || '',
@@ -368,6 +369,7 @@ const Sheets = {
       recurrence:       r[14] || 'none',
       recurrenceConfig: _parseSt(r[15]),
       paidDates:        _parseSt(r[16]),
+      assignedUserId:   r[17] || '',
     }));
   },
   async addReminder(rem) {
@@ -1218,7 +1220,10 @@ State.getClientDocs = function(clientId) {
 
 /* ─── Reminders ─────────────────────────────────────────── */
 State.addReminder = async function(data) {
-  const rem = { id:'rem'+Date.now(), ...data, active:true, paidAt:'' };
+  const rem = {
+    id: 'rem'+Date.now(), ...data, active:true, paidAt:'',
+    assignedUserId: data.assignedUserId || this.user?.id || '',
+  };
   this.reminders.push(rem);
   if (this.useSheets) Sheets.addReminder(rem);
   return rem;

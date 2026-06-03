@@ -210,8 +210,11 @@ function renderDashboard() {
 
   /* Reminders badge in sidebar */
   const todayR = new Date().toISOString().slice(0,10);
+  const myIdR   = State.user?.id;
+  const isAdminR = State.user?.role === 'admin';
   const urgentRem = State.reminders.filter(r => {
     if (!r.active || r.paidAt) return false;
+    if (!isAdminR && r.assignedUserId !== myIdR) return false;
     const days = Math.ceil((new Date(r.eventDate) - new Date(todayR)) / 86400000);
     return days <= 7;
   }).length;
@@ -3798,9 +3801,15 @@ function setReminderFilter(filter, el) {
 function renderReminders() {
   const el    = document.getElementById('reminder-list');
   if (!el) return;
+  /* Filter by user: admin sees all, others see only their own */
+  const myId    = State.user?.id;
+  const isAdmin = State.user?.role === 'admin';
   const today = new Date().toISOString().slice(0,10);
 
-  let rems = [...State.reminders];
+  /* Each user sees only their own reminders; admin sees all */
+  let rems = State.reminders.filter(r =>
+    isAdmin || (r.assignedUserId === myId) || (!r.assignedUserId && r.assignedUserId !== 'admin')
+  );
   if (_remFilter === 'upcoming') rems = rems.filter(r => r.active && !r.paidAt && r.eventDate >= today);
   else if (_remFilter === 'overdue') rems = rems.filter(r => r.active && !r.paidAt && r.eventDate < today);
   else if (_remFilter === 'done') rems = rems.filter(r => r.paidAt || !r.active);
@@ -3831,9 +3840,10 @@ function renderReminders() {
 
   const isAdmin = State.user?.role === 'admin';
   el.innerHTML = rems.map(r => {
-    const cat  = REM_CATS[r.category] || REM_CATS['Custom'];
-    const c    = r.clientId ? State.getClient(r.clientId) : null;
-    const paid = !!r.paidAt;
+    const cat      = REM_CATS[r.category] || REM_CATS['Custom'];
+    const c        = r.clientId ? State.getClient(r.clientId) : null;
+    const assignee = r.assignedUserId ? State.getUser(r.assignedUserId) : null;
+    const paid     = !!r.paidAt;
     const days = r.eventDate
       ? Math.ceil((new Date(r.eventDate) - new Date(today)) / 86400000) : null;
 
@@ -3933,6 +3943,7 @@ function renderReminders() {
               ${recLabel}
               ${c ? `<span style="color:${c.color};font-size:11px">● ${c.name}</span>` : ''}
               ${!isRecurring ? `<span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${fmtDate(r.eventDate)}</span>` : ''}
+              ${isAdmin && assignee ? `<div class="assign-chip ${assignee.avClass}" title="${assignee.name}" style="width:18px;height:18px;font-size:7px">${assignee.initials}</div>` : ''}
               ${notifyHtml}
             </div>
             ${r.amount ? `<div style="font-size:12px;font-weight:600;color:var(--ink);margin-top:3px;font-family:var(--mono)">${esc(String(r.amount))}</div>` : ''}
@@ -4080,9 +4091,26 @@ function openAddReminderModal() {
   document.getElementById('rf-client').innerHTML =
     `<option value="">No client</option>` +
     State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  _populateReminderAssignee(State.user?.id);
   _resetRecurrence();
   document.getElementById('reminder-form-modal').classList.add('open');
   setTimeout(() => document.getElementById('rf-title').focus(), 100);
+}
+
+function _populateReminderAssignee(selectedId) {
+  const group = document.getElementById('rf-assign-group');
+  const sel   = document.getElementById('rf-assignee');
+  if (!group || !sel) return;
+  /* Only admin sees the assign dropdown; others auto-assign to themselves */
+  if (State.user?.role !== 'admin') {
+    group.style.display = 'none';
+    sel.innerHTML = `<option value="${State.user?.id}">${State.user?.name}</option>`;
+    return;
+  }
+  group.style.display = '';
+  sel.innerHTML = State.users.map(u =>
+    `<option value="${u.id}" ${u.id === selectedId ? 'selected' : ''}>${u.name} (${u.role})</option>`
+  ).join('');
 }
 
 function openEditReminderModal(remId) {
@@ -4104,6 +4132,7 @@ function openEditReminderModal(remId) {
   document.getElementById('rf-client').innerHTML =
     `<option value="">No client</option>` +
     State.clients.map(c => `<option value="${c.id}" ${c.id===r.clientId?'selected':''}>${c.name}</option>`).join('');
+  _populateReminderAssignee(r.assignedUserId || State.user?.id);
   _resetRecurrence(); /* edit mode = one-time only */
   document.getElementById('reminder-form-modal').classList.add('open');
 }
@@ -4124,7 +4153,8 @@ async function submitReminderForm() {
   const remind3  = parseInt(document.getElementById('rf-r3').value) || null;
   const notifyEmail    = document.getElementById('rf-email').checked;
   const notifyTelegram = document.getElementById('rf-telegram').checked;
-  const notes    = document.getElementById('rf-notes').value.trim();
+  const notes          = document.getElementById('rf-notes').value.trim();
+  const assignedUserId = document.getElementById('rf-assignee')?.value || State.user?.id;
 
   if (!title || !eventDate) { toast('Please fill in title and due date', 'error'); return; }
 
@@ -4147,6 +4177,7 @@ async function submitReminderForm() {
     recurrence: _recurrenceType || 'none',
     recurrenceConfig,
     paidDates: [],
+    assignedUserId,
   };
 
   if (_editReminderId) {
