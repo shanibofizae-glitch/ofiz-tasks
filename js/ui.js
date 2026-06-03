@@ -873,7 +873,7 @@ async function submitClientForm() {
     const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true, tags, sortOrder: State.clients.length };
     State.clients.push(newClient);
     if (State.useSheets) {
-      await Sheets._post({ action:'append', tab:'Clients', row:Sheets._clientRow(newClient) });
+      await Sheets.addClient(newClient); /* Supabase insert */
     }
     if (saveBtn) { saveBtn.disabled = false; }
     closeClientForm();
@@ -4082,7 +4082,7 @@ async function saveClientProfile(clientId) {
 function _renderCPNotes(clientId) {
   const el    = document.getElementById('cp-body');
   const notes = State.getClientNotes(clientId);
-  const isAdmin = State.user?.role !== 'viewer';
+  const isAdmin = State.user?.role === 'admin';
   el.innerHTML = `
   <div class="cp-tab-content">
     ${isAdmin ? `

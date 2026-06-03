@@ -322,7 +322,7 @@ const State = {
   async loadFromSheets() {
     if (!this.useSheets) return;
     try {
-      console.log('[State] Loading from Supabase...');
+      // data loaded
       const [sheetTasks, sheetComments, sheetClients, sheetUsers,
              sheetPipelines, sheetStages, sheetTemplates,
              sheetActivity, sheetDocs, sheetViews, sheetTimeLogs,
@@ -354,9 +354,9 @@ const State = {
         });
         const dupes = sheetTasks.length - this.tasks.length;
         if (dupes > 0) console.warn(`[State] Removed ${dupes} duplicate task ID(s) from loaded data`);
-        console.log('[State] Loaded', this.tasks.length, 'tasks from Supabase (nextId now', this.nextId, ')');
+        // data loaded
       } else {
-        console.log('[State] Tasks sheet is empty — starting fresh');
+        // data loaded
       }
       if (sheetComments.length > 0) {
         /* Deduplicate comments by ID */
@@ -367,30 +367,30 @@ const State = {
           const m = c.id.match(/^[a-z]+(\d+)$/i);
           if (m) this.nextId = Math.max(this.nextId, parseInt(m[1], 10));
         });
-        console.log('[State] Loaded', this.comments.length, 'comments from Supabase');
+        // data loaded
       }
       if (sheetClients && sheetClients.length > 0) {
         this.clients = sheetClients; /* sheet is the sole source of truth */
-        console.log('[State] Loaded', sheetClients.length, 'clients from Supabase');
+        // data loaded
       }
       if (sheetUsers && sheetUsers.length > 0) {
         this.users = sheetUsers;
-        console.log('[State] Loaded', sheetUsers.length, 'users from Supabase');
+        // data loaded
       }
       if (sheetPipelines && sheetPipelines.length > 0) {
         this.pipelines = sheetPipelines;
         if (!this.activePipelineId || !this.pipelines.find(p => p.id === this.activePipelineId)) {
           this.activePipelineId = this.pipelines[0]?.id || null;
         }
-        console.log('[State] Loaded', sheetPipelines.length, 'pipelines from Supabase');
+        // data loaded
       }
       if (sheetStages && sheetStages.length > 0) {
         this.stages = sheetStages;
-        console.log('[State] Loaded', sheetStages.length, 'stages from Supabase');
+        // data loaded
       }
       if (sheetTemplates && sheetTemplates.length > 0) {
         this.templates = sheetTemplates;
-        console.log('[State] Loaded', sheetTemplates.length, 'templates from Supabase');
+        // data loaded
       }
       if (sheetActivity && sheetActivity.length > 0) {
         this.activityLog = sheetActivity;
@@ -417,7 +417,7 @@ const State = {
       _updateSyncTime();
     } catch(e) {
       console.error('[State.loadFromSheets] Failed:', e);
-      _showSyncError('Failed to load data from Sheet');
+      _showSyncError('Failed to load data from Supabase');
     }
   },
 
@@ -810,7 +810,7 @@ State.deleteSubtask = async function(taskId, stId) {
 };
 
 /* ─── Activity log ──────────────────────────────────────── */
-State.activityLog = [];
+/* State.activityLog already declared in State object above */
 
 State.addActivity = async function(taskId, text) {
   if (!this.user) return; /* skip during initial load */
