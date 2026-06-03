@@ -90,24 +90,12 @@
     </div>
 
     <nav class="sidebar-nav">
-      <div class="nav-group-label">Workspace</div>
       <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard',this)">
         <i class="ti ti-layout-dashboard"></i> Dashboard
       </div>
       <div class="nav-item" data-page="tasks" onclick="showPage('tasks',this)">
         <i class="ti ti-list-check"></i> All tasks
         <span class="nav-badge badge-overdue" style="display:none">0</span>
-      </div>
-      <div class="nav-item" data-page="clients" onclick="showPage('clients',this)">
-        <i class="ti ti-building-store"></i> Clients
-      </div>
-      <div class="nav-item" data-page="documents" onclick="showPage('documents',this)">
-        <i class="ti ti-file-certificate"></i> Documents
-        <span class="nav-badge badge-overdue" id="badge-documents" style="display:none">!</span>
-      </div>
-      <div class="nav-item" data-page="reminders" onclick="showPage('reminders',this)">
-        <i class="ti ti-bell"></i> Reminders
-        <span class="nav-badge badge-overdue" id="badge-reminders" style="display:none">!</span>
       </div>
       <div class="nav-item" data-page="pipelines" onclick="showPage('pipelines',this)">
         <i class="ti ti-layout-kanban"></i> Pipelines
@@ -119,6 +107,21 @@
       <div class="nav-item" data-page="close" data-admin-only onclick="showPage('close',this)">
         <i class="ti ti-calendar-check"></i> Monthly close
       </div>
+
+      <div style="height:1px;background:var(--border);margin:8px 10px"></div>
+
+      <div class="nav-item" data-page="clients" onclick="showPage('clients',this)">
+        <i class="ti ti-building-store"></i> Clients
+      </div>
+      <div class="nav-item" data-page="documents" onclick="showPage('documents',this)">
+        <i class="ti ti-file-certificate"></i> Documents
+        <span class="nav-badge badge-overdue" id="badge-documents" style="display:none">!</span>
+      </div>
+      <div class="nav-item" data-page="reminders" onclick="showPage('reminders',this)">
+        <i class="ti ti-bell"></i> Reminders
+        <span class="nav-badge badge-overdue" id="badge-reminders" style="display:none">!</span>
+      </div>
+
       <div class="nav-group-label">Admin</div>
       <div class="nav-item" data-page="users" data-admin-only onclick="showPage('users',this)">
         <i class="ti ti-users"></i> Users & roles
@@ -1007,8 +1010,8 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Amount (AED)</label>
-          <input type="number" id="rf-amount" class="form-input" placeholder="e.g. 15000" step="0.01" style="font-family:var(--mono)">
+          <label class="form-label">Description / Amount</label>
+          <input type="text" id="rf-amount" class="form-input" placeholder="e.g. AED 15,000 or Cheque #123456">
         </div>
       </div>
       <div class="form-row">

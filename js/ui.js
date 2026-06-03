@@ -3873,7 +3873,7 @@ function renderReminders() {
         ${scheduleChips ? `<div class="rem-schedule">${scheduleChips}</div>` : ''}
         ${r.notes ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">${esc(r.notes)}</div>` : ''}
       </div>
-      ${r.amount ? `<div class="rem-amount">AED ${Number(r.amount).toLocaleString('en-AE',{minimumFractionDigits:0})}</div>` : ''}
+      ${r.amount ? `<div class="rem-amount" style="font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;flex-shrink:0;text-align:right;font-family:var(--mono)">${esc(String(r.amount))}</div>` : ''}
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
         ${daysBadge}
         ${isAdmin && !paid ? `
@@ -3906,25 +3906,39 @@ let _recCustomDates  = [];
 /* ── Recurrence helpers ─────────────────────────────────── */
 function setRecurrenceType(type) {
   _recurrenceType = type;
+
+  /* Toggle button styles */
   ['none','monthly','quarterly','custom'].forEach(t => {
     const btn = document.getElementById('rec-' + t);
-    if (btn) {
-      const on = t === type;
-      btn.style.background  = on ? 'var(--ink)' : '';
-      btn.style.color       = on ? 'var(--bg-sidebar)' : '';
-      btn.style.borderColor = on ? 'var(--ink)' : '';
-    }
+    if (!btn) return;
+    const on = (t === type);
+    btn.style.background  = on ? 'var(--ink)' : '';
+    btn.style.color       = on ? 'var(--bg-sidebar)' : '';
+    btn.style.borderColor = on ? 'var(--ink)' : '';
   });
-  document.getElementById('rec-monthly-opts').style.display   = type === 'monthly'   ? '' : 'none';
-  document.getElementById('rec-quarterly-opts').style.display = type === 'quarterly' ? '' : 'none';
-  document.getElementById('rec-custom-opts').style.display    = type === 'custom'    ? '' : 'none';
-  /* Update save button label */
+
+  /* Show/hide option panels */
+  const mo = document.getElementById('rec-monthly-opts');
+  const qo = document.getElementById('rec-quarterly-opts');
+  const co = document.getElementById('rec-custom-opts');
+  if (mo) mo.style.display = (type === 'monthly')   ? '' : 'none';
+  if (qo) qo.style.display = (type === 'quarterly') ? '' : 'none';
+  if (co) co.style.display = (type === 'custom')    ? '' : 'none';
+
+  /* Save button label */
   const lbl = document.getElementById('rf-save-label');
-  if (lbl) {
-    if (type === 'monthly')   lbl.textContent = `Save (generates monthly reminders)`;
-    else if (type === 'quarterly') lbl.textContent = `Save (generates quarterly reminders)`;
-    else if (type === 'custom')    lbl.textContent = `Save (generates ${1 + _recCustomDates.filter(Boolean).length} reminders)`;
-    else lbl.textContent = 'Save reminder';
+  if (!lbl) return;
+  if (type === 'monthly') {
+    const n = parseInt(document.getElementById('rec-months')?.value) || 12;
+    lbl.textContent = `Save — creates ${n} monthly reminders`;
+  } else if (type === 'quarterly') {
+    const n = parseInt(document.getElementById('rec-quarters')?.value) || 4;
+    lbl.textContent = `Save — creates ${n} quarterly reminders`;
+  } else if (type === 'custom') {
+    const n = 1 + _recCustomDates.filter(Boolean).length;
+    lbl.textContent = `Save — creates ${n} reminder${n !== 1 ? 's' : ''}`;
+  } else {
+    lbl.textContent = 'Save reminder';
   }
 }
 
@@ -4036,7 +4050,7 @@ function closeReminderModal() {
 async function submitReminderForm() {
   const title    = document.getElementById('rf-title').value.trim();
   const category = document.getElementById('rf-category').value;
-  const amount   = parseFloat(document.getElementById('rf-amount').value) || null;
+  const amount   = document.getElementById('rf-amount').value.trim() || null;
   const clientId = document.getElementById('rf-client').value;
   const eventDate = document.getElementById('rf-date').value;
   const remind1  = parseInt(document.getElementById('rf-r1').value) || null;
