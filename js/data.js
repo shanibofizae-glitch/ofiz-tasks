@@ -468,17 +468,7 @@ const State = {
   /* ── Delete a task ───────────────────────────────────── */
   async deleteTask(id) {
     this.tasks = this.tasks.filter(t => t.id !== id);
-    if (this.useSheets) {
-      const rowNum = await Sheets.findTaskRow(id);
-      if (rowNum >= 0) {
-        await Sheets._post({ action:'update', tab:'Tasks', rowNum,
-          row:['','','','','','','','','','','','','',''] });
-      } else {
-        /* Demo task not in sheet — write tombstone so it won't reappear */
-        await Sheets._post({ action:'append', tab:'Tasks',
-          row:[id, '__deleted__', '', '', '', '', '', '', '', '', '', '', '', ''] });
-      }
-    }
+    if (this.useSheets) await Sheets.deleteTask(id);
   },
 
   /* ── Edit a comment ─────────────────────────────────── */
@@ -644,9 +634,9 @@ State.addPipeline = async function(name, desc, stageObjs) {
     this.stages.push(stage);
   });
   if (this.useSheets) {
-    await Sheets._post({ action:'append', tab:'Pipelines', row:[pipeline.id, pipeline.name, pipeline.desc, 'true'] });
+    await Sheets.addPipelineRow(pipeline);
     for (const s of this.stages.filter(s => s.pipelineId === id)) {
-      await Sheets._post({ action:'append', tab:'PipelineStages', row:[s.id, s.pipelineId, s.order, s.name, s.color||'', s.targetDays||''] });
+      await Sheets.addStage(s);
     }
   }
   return pipeline;
@@ -749,29 +739,14 @@ State.deleteClient = async function(id) {
   /* Unassign tasks that belong to this client */
   this.tasks.forEach(t => { if (t.clientId === id) t.clientId = ''; });
   this.clients = this.clients.filter(c => c.id !== id);
-  if (this.useSheets) {
-    const rowNum = await Sheets.findRow('Clients', id);
-    if (rowNum >= 0) {
-      await Sheets._post({ action:'update', tab:'Clients', rowNum, row:['','','','','',''] });
-    } else {
-      /* Demo client not in sheet — write tombstone */
-      await Sheets._post({ action:'append', tab:'Clients',
-        row:[id, '__deleted__', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''] });
-    }
-  }
+  if (this.useSheets) await Sheets.deleteClient(id);
 };
 
 State.updatePipeline = async function(id, patch) {
   const p = this.pipelines.find(p => p.id === id);
   if (!p) return;
   Object.assign(p, patch);
-  if (this.useSheets) {
-    const rowNum = await Sheets.findRow('Pipelines', id);
-    if (rowNum >= 0) {
-      await Sheets._post({ action:'update', tab:'Pipelines', rowNum,
-        row:[p.id, p.name, p.desc, String(p.active)] });
-    }
-  }
+  if (this.useSheets) await Sheets.updatePipelineRow(p);
 };
 
 State.addStage = async function(pipelineId, name, color, targetDays) {
@@ -779,22 +754,14 @@ State.addStage = async function(pipelineId, name, color, targetDays) {
   const order    = existing.length > 0 ? Math.max(...existing.map(s => s.order)) + 1 : 1;
   const stage    = { id:'s'+Date.now(), pipelineId, order, name, color: color||'', targetDays: targetDays||0 };
   this.stages.push(stage);
-  if (this.useSheets) {
-    await Sheets._post({ action:'append', tab:'PipelineStages',
-      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color, stage.targetDays||''] });
-  }
+  if (this.useSheets) await Sheets.addStage(stage);
   return stage;
 };
 
 State.deleteStage = async function(stageId) {
   this.tasks.forEach(t => { if (t.pipelineStageId === stageId) t.pipelineStageId = null; });
   this.stages = this.stages.filter(s => s.id !== stageId);
-  if (this.useSheets) {
-    const rowNum = await Sheets.findRow('PipelineStages', stageId);
-    if (rowNum >= 0) {
-      await Sheets._post({ action:'update', tab:'PipelineStages', rowNum, row:['','','','',''] });
-    }
-  }
+  if (this.useSheets) await Sheets.deleteStage(stageId);
 };
 
 State.updateStageData = async function(stageId, patch) {
@@ -858,8 +825,7 @@ State.addActivity = async function(taskId, text) {
   };
   this.activityLog.push(ev);
   if (this.useSheets) {
-    Sheets._post({ action:'append', tab:'AuditLog',
-      row:[ev.id, ev.taskId, ev.userId, ev.text, ev.createdAt] });
+    Sheets.addComment(ev);
   }
 };
 
