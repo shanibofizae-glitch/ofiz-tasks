@@ -3838,7 +3838,6 @@ function renderReminders() {
     return;
   }
 
-  const isAdmin = State.user?.role === 'admin';
   el.innerHTML = rems.map(r => {
     const cat      = REM_CATS[r.category] || REM_CATS['Custom'];
     const c        = r.clientId ? State.getClient(r.clientId) : null;
