@@ -1,6 +1,6 @@
 /* OFIZ Tasks — Netlify Edge Function password gate */
 
-const SITE_PASSWORD = 'OFIZAccounting2026'; /* change this to your preferred password */
+const SITE_PASSWORD = 'Ofizae2026'; /* change this to your preferred password */
 
 export default async (request, context) => {
   const url = new URL(request.url);
