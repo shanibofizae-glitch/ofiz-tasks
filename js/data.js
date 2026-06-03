@@ -1096,6 +1096,14 @@ State.deleteUser = async function(id) {
   if (this.useSheets) Sheets.deleteUser(id);
 };
 
+State.archiveClient = async function(id) {
+  return await this.updateClient(id, { active: false });
+};
+
+State.unarchiveClient = async function(id) {
+  return await this.updateClient(id, { active: true });
+};
+
 State.saveClientOrder = async function() {
   /* Write sortOrder for every client — fires in parallel */
   this.clients.forEach((c, i) => { c.sortOrder = i; });

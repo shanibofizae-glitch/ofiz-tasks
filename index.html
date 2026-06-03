@@ -335,9 +335,15 @@
       <div id="page-clients" class="page">
         <div class="section-head" style="margin-bottom:12px">
           <span class="section-title">Client overview</span>
-          <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewClientModal()">
-            <i class="ti ti-plus"></i> New client
-          </button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" id="archived-toggle-btn" onclick="toggleShowArchived()"
+              style="display:none">
+              <i class="ti ti-archive"></i> <span id="archived-toggle-label">Show archived</span>
+            </button>
+            <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewClientModal()">
+              <i class="ti ti-plus"></i> New client
+            </button>
+          </div>
         </div>
         <!-- Tag filter bar -->
         <div id="client-tag-filter-bar" style="display:none;margin-bottom:14px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">

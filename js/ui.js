@@ -476,6 +476,20 @@ function setFilter(key, val, el) {
 /* ── Clients page ───────────────────────────────────────── */
 let _dragClientId    = null;
 let _activeClientTag = null;
+let _showArchived    = false;
+
+function toggleShowArchived() {
+  _showArchived = !_showArchived;
+  const btn = document.getElementById('archived-toggle-btn');
+  const lbl = document.getElementById('archived-toggle-label');
+  if (btn) {
+    btn.style.background  = _showArchived ? 'var(--amber-light)' : '';
+    btn.style.color       = _showArchived ? 'var(--amber)' : '';
+    btn.style.borderColor = _showArchived ? 'var(--amber)' : '';
+  }
+  if (lbl) lbl.textContent = _showArchived ? 'Hide archived' : 'Show archived';
+  renderClients();
+}
 
 function setClientTagFilter(tag) {
   _activeClientTag = _activeClientTag === tag ? null : tag; /* toggle */
@@ -504,7 +518,19 @@ function renderClients() {
 
   renderClientTagFilter();
 
+  const archivedCount = State.clients.filter(c => !c.active).length;
+  const archBtn = document.getElementById('archived-toggle-btn');
+  const archLbl = document.getElementById('archived-toggle-label');
+  if (archBtn) {
+    archBtn.style.display = archivedCount > 0 ? '' : 'none';
+    if (archLbl && !_showArchived) archLbl.textContent = `Show archived (${archivedCount})`;
+  }
+
   let health = State.clientHealth()
+    .filter(c => {
+      const client = State.getClient(c.id);
+      return _showArchived ? client?.active === false : client?.active !== false;
+    })
     .sort((a,b) => (State.getClient(a.id)?.sortOrder ?? 999) - (State.getClient(b.id)?.sortOrder ?? 999));
   if (_activeClientTag) {
     health = health.filter(c => (State.getClient(c.id)?.tags||[]).includes(_activeClientTag));
@@ -525,7 +551,10 @@ function renderClients() {
          ondragover="clientDragOver(event)"
          ondragleave="clientDragLeave(event)"
          ondrop="clientDrop(event,'${c.id}')">
-      <div class="client-card-accent" style="background:${c.color}"></div>
+      <div class="client-card-accent" style="background:${State.getClient(c.id)?.active===false?'var(--border-md)':c.color}"></div>
+      ${State.getClient(c.id)?.active === false ? `<div style="position:absolute;top:10px;left:12px;font-size:9.5px;
+        font-weight:700;color:var(--ink-3);background:var(--bg-active);
+        border:1px solid var(--border-md);border-radius:20px;padding:1px 7px;letter-spacing:0.5px">ARCHIVED</div>` : ''}
       ${isAdmin ? `<i class="ti ti-grip-vertical client-drag-handle" onclick="event.stopPropagation()" title="Drag to reorder"></i>` : ''}
       <div class="client-card-body">
         <div class="client-card-top">
@@ -3587,7 +3616,7 @@ function _renderCPOverview(clientId) {
     </div>` : ''}
 
     <!-- Quick actions -->
-    <div class="cp-section" style="border-bottom:none;display:flex;gap:8px;flex-wrap:wrap">
+    <div class="cp-section" style="border-bottom:none;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn btn-ghost btn-sm" onclick="filterByClient('${clientId}');closeClientProfile()">
         <i class="ti ti-list-check"></i> View tasks
       </button>
@@ -3597,6 +3626,19 @@ function _renderCPOverview(clientId) {
       <button class="btn btn-primary btn-sm" data-admin-only onclick="closeClientProfile();openNewTaskModal();document.getElementById('tf-client').value='${clientId}'">
         <i class="ti ti-plus"></i> Add task
       </button>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        ${isAdmin ? (c.active !== false
+          ? `<button class="btn btn-ghost btn-sm" onclick="archiveClientAction('${clientId}')" title="Archive client — hides from main view, keeps all data">
+               <i class="ti ti-archive"></i> Archive
+             </button>`
+          : `<button class="btn btn-success btn-sm" onclick="unarchiveClientAction('${clientId}')" title="Restore client">
+               <i class="ti ti-archive-off"></i> Unarchive
+             </button>`)
+          : ''}
+        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="deleteClientAction('${clientId}')">
+          <i class="ti ti-trash"></i> Delete
+        </button>` : ''}
+      </div>
     </div>`;
 
   /* Apply admin-only visibility */
@@ -3614,6 +3656,40 @@ async function createCtFilingReminder(clientId) {
   const n = await State.createCtFilingReminder(clientId);
   if (n) toast('Corporate Tax reminder created!');
   else toast('Set CT year-end date in profile first', 'error');
+}
+
+async function archiveClientAction(clientId) {
+  const c = State.getClient(clientId);
+  if (!confirm(`Archive "${c?.name}"? It will be hidden from the main view but all data is kept. You can unarchive anytime.`)) return;
+  await State.archiveClient(clientId);
+  toast(`"${c?.name}" archived`);
+  closeClientProfile();
+  renderClients();
+  renderSettingsClients();
+}
+
+async function unarchiveClientAction(clientId) {
+  const c = State.getClient(clientId);
+  await State.unarchiveClient(clientId);
+  toast(`"${c?.name}" restored`);
+  closeClientProfile();
+  renderClients();
+  renderSettingsClients();
+}
+
+async function deleteClientAction(clientId) {
+  const c      = State.getClient(clientId);
+  const active = State.tasks.filter(t => t.clientId === clientId && t.status !== 'done').length;
+  const msg    = active > 0
+    ? `Delete "${c?.name}"? This client has ${active} active task${active!==1?'s':''}. All data will be permanently removed. Consider archiving instead.`
+    : `Delete "${c?.name}"? This cannot be undone. Consider archiving instead.`;
+  if (!confirm(msg)) return;
+  await State.deleteClient(clientId);
+  toast(`"${c?.name}" deleted`, 'error');
+  closeClientProfile();
+  renderClients();
+  renderSettingsClients();
+  populateFormDropdowns();
 }
 
 function _cpField(label, value) {
