@@ -273,6 +273,11 @@ document.addEventListener('click', e => {
   }
 });
 
+/* ── PWA Service Worker ─────────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/ofiz-tasks/sw.js').catch(() => {});
+}
+
 /* ── Init ───────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-screen').style.display = 'flex';
