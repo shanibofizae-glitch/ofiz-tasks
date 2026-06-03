@@ -208,6 +208,16 @@ function renderDashboard() {
   renderCompletionChart();
   renderWorkload();
 
+  /* Reminders badge in sidebar */
+  const todayR = new Date().toISOString().slice(0,10);
+  const urgentRem = State.reminders.filter(r => {
+    if (!r.active || r.paidAt) return false;
+    const days = Math.ceil((new Date(r.eventDate) - new Date(todayR)) / 86400000);
+    return days <= 7;
+  }).length;
+  const rb = document.getElementById('badge-reminders');
+  if (rb) { rb.textContent = urgentRem||''; rb.style.display = urgentRem ? '' : 'none'; }
+
   /* Documents expiry badge in sidebar */
   const expDocs = State.expiringDocuments(30).length;
   const db = document.getElementById('badge-documents');
@@ -3744,6 +3754,247 @@ function _renderTemplatChecklist() {
         <i class="ti ti-x"></i>
       </button>
     </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   REMINDERS MODULE
+   ═══════════════════════════════════════════════════════════ */
+const REM_CATS = {
+  'PDC Cheque':       { icon:'ti-checkbook',     color:'#5b3fa6', bg:'var(--purple-light)' },
+  'Credit Card':      { icon:'ti-credit-card',   color:'#c0392b', bg:'var(--red-light)'    },
+  'Bank Transfer':    { icon:'ti-building-bank', color:'#1a5fb4', bg:'var(--blue-light)'   },
+  'VAT Payment':      { icon:'ti-receipt',       color:'#0d7a6b', bg:'var(--accent-light)' },
+  'WPS':              { icon:'ti-cash',          color:'#b7691a', bg:'var(--amber-light)'  },
+  'Loan Payment':     { icon:'ti-coin',          color:'#c0392b', bg:'var(--red-light)'    },
+  'Lease / Rent':     { icon:'ti-home',          color:'#1a5fb4', bg:'var(--blue-light)'   },
+  'Supplier Payment': { icon:'ti-truck',         color:'#5b3fa6', bg:'var(--purple-light)' },
+  'Tax Payment':      { icon:'ti-calculator',    color:'#0d7a6b', bg:'var(--accent-light)' },
+  'Custom':           { icon:'ti-bell',          color:'#6b6760', bg:'var(--bg-active)'    },
+};
+
+let _remFilter = 'all';
+
+function setReminderFilter(filter, el) {
+  _remFilter = filter;
+  if (el) {
+    el.closest('.filter-bar').querySelectorAll('.filter-chip[data-filter="rem-status"]')
+      .forEach(c => c.classList.remove('on'));
+    el.classList.add('on');
+  }
+  renderReminders();
+}
+
+function renderReminders() {
+  const el    = document.getElementById('reminder-list');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0,10);
+
+  let rems = [...State.reminders];
+  if (_remFilter === 'upcoming') rems = rems.filter(r => r.active && !r.paidAt && r.eventDate >= today);
+  else if (_remFilter === 'overdue') rems = rems.filter(r => r.active && !r.paidAt && r.eventDate < today);
+  else if (_remFilter === 'paid') rems = rems.filter(r => r.paidAt);
+  else rems = rems.filter(r => r.active || r.paidAt);
+
+  rems.sort((a,b) => {
+    if (a.paidAt && !b.paidAt) return 1;
+    if (!a.paidAt && b.paidAt) return -1;
+    return (a.eventDate||'').localeCompare(b.eventDate||'');
+  });
+
+  /* Update badge */
+  const urgentCount = State.reminders.filter(r => {
+    if (!r.active || r.paidAt) return false;
+    const d = Math.ceil((new Date(r.eventDate) - new Date(today)) / 86400000);
+    return d <= 7;
+  }).length;
+  const rb = document.getElementById('badge-reminders');
+  if (rb) { rb.textContent = urgentCount||''; rb.style.display = urgentCount ? '' : 'none'; }
+
+  if (!rems.length) {
+    el.innerHTML = `<div class="empty-state">
+      <i class="ti ti-bell"></i>
+      <p>No reminders found. Click <strong>Add reminder</strong> to track payments.</p>
+    </div>`;
+    return;
+  }
+
+  const isAdmin = State.user?.role === 'admin';
+  el.innerHTML = rems.map(r => {
+    const cat  = REM_CATS[r.category] || REM_CATS['Custom'];
+    const c    = r.clientId ? State.getClient(r.clientId) : null;
+    const paid = !!r.paidAt;
+    const days = r.eventDate
+      ? Math.ceil((new Date(r.eventDate) - new Date(today)) / 86400000) : null;
+
+    /* Days badge */
+    let daysBadge = '';
+    if (paid) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--green-light);color:var(--green)">✓ Paid ${fmtDate(r.paidAt)}</span>`;
+    } else if (days === null) {
+      daysBadge = '';
+    } else if (days < 0) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">⚠ ${Math.abs(days)}d overdue</span>`;
+    } else if (days === 0) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">🔴 Due today</span>`;
+    } else if (days <= 3) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">${days}d left</span>`;
+    } else if (days <= 7) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--amber-light);color:var(--amber)">${days}d left</span>`;
+    } else {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--green-light);color:var(--green)">${days}d away</span>`;
+    }
+
+    const cardCls = paid ? 'paid' : days !== null && days < 0 ? 'overdue' : days !== null && days <= 7 ? 'due-soon' : '';
+
+    /* Reminder schedule chips */
+    const scheduleChips = [r.remind1, r.remind2, r.remind3].filter(Boolean)
+      .map(d => `<span class="rem-schedule-chip"><i class="ti ti-bell" style="font-size:9px"></i> ${d}d before</span>`)
+      .join('');
+
+    /* Notify icons */
+    const notifyHtml = `
+      ${r.notifyEmail ? '<i class="ti ti-mail" style="font-size:11px;color:var(--ink-4)" title="Email"></i>' : ''}
+      ${r.notifyTelegram ? '<i class="ti ti-brand-telegram" style="font-size:11px;color:var(--ink-4)" title="Telegram"></i>' : ''}`;
+
+    return `
+    <div class="rem-card ${cardCls}">
+      <div class="rem-icon" style="background:${cat.bg};color:${cat.color}">
+        <i class="ti ${cat.icon}"></i>
+      </div>
+      <div class="rem-body">
+        <div class="rem-title">${esc(r.title)}</div>
+        <div class="rem-meta">
+          <span style="background:${cat.bg};color:${cat.color};font-size:10px;font-weight:600;
+            padding:1px 8px;border-radius:20px">${r.category}</span>
+          ${c ? `<span style="color:${c.color};font-size:11px">● ${c.name}</span>` : ''}
+          <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${fmtDate(r.eventDate)}</span>
+          ${notifyHtml}
+        </div>
+        ${scheduleChips ? `<div class="rem-schedule">${scheduleChips}</div>` : ''}
+        ${r.notes ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">${esc(r.notes)}</div>` : ''}
+      </div>
+      ${r.amount ? `<div class="rem-amount">AED ${Number(r.amount).toLocaleString('en-AE',{minimumFractionDigits:0})}</div>` : ''}
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+        ${daysBadge}
+        ${isAdmin && !paid ? `
+        <div class="rem-actions">
+          <button class="btn btn-success btn-sm" onclick="markReminderPaid('${r.id}')" title="Mark as paid">
+            <i class="ti ti-circle-check"></i> Paid
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="openEditReminderModal('${r.id}')">
+            <i class="ti ti-edit"></i>
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDeleteReminder('${r.id}')">
+            <i class="ti ti-trash"></i>
+          </button>
+        </div>` : isAdmin ? `
+        <div class="rem-actions">
+          <button class="btn btn-ghost btn-sm" onclick="confirmDeleteReminder('${r.id}')">
+            <i class="ti ti-trash"></i>
+          </button>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── Reminder modal ─────────────────────────────────────── */
+let _editReminderId = null;
+
+function openAddReminderModal() {
+  _editReminderId = null;
+  document.getElementById('reminder-form-title').textContent = 'Add reminder';
+  document.getElementById('rf-id').value        = '';
+  document.getElementById('rf-title').value     = '';
+  document.getElementById('rf-category').value  = 'PDC Cheque';
+  document.getElementById('rf-amount').value    = '';
+  document.getElementById('rf-date').value      = '';
+  document.getElementById('rf-r1').value        = '7';
+  document.getElementById('rf-r2').value        = '3';
+  document.getElementById('rf-r3').value        = '1';
+  document.getElementById('rf-email').checked   = true;
+  document.getElementById('rf-telegram').checked = true;
+  document.getElementById('rf-notes').value     = '';
+  /* Populate client dropdown */
+  document.getElementById('rf-client').innerHTML =
+    `<option value="">No client</option>` +
+    State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('reminder-form-modal').classList.add('open');
+  setTimeout(() => document.getElementById('rf-title').focus(), 100);
+}
+
+function openEditReminderModal(remId) {
+  _editReminderId = remId;
+  const r = State.reminders.find(x => x.id === remId);
+  if (!r) return;
+  document.getElementById('reminder-form-title').textContent = 'Edit reminder';
+  document.getElementById('rf-id').value        = r.id;
+  document.getElementById('rf-title').value     = r.title;
+  document.getElementById('rf-category').value  = r.category;
+  document.getElementById('rf-amount').value    = r.amount || '';
+  document.getElementById('rf-date').value      = r.eventDate;
+  document.getElementById('rf-r1').value        = r.remind1 || '';
+  document.getElementById('rf-r2').value        = r.remind2 || '';
+  document.getElementById('rf-r3').value        = r.remind3 || '';
+  document.getElementById('rf-email').checked   = r.notifyEmail;
+  document.getElementById('rf-telegram').checked = r.notifyTelegram;
+  document.getElementById('rf-notes').value     = r.notes || '';
+  document.getElementById('rf-client').innerHTML =
+    `<option value="">No client</option>` +
+    State.clients.map(c => `<option value="${c.id}" ${c.id===r.clientId?'selected':''}>${c.name}</option>`).join('');
+  document.getElementById('reminder-form-modal').classList.add('open');
+}
+
+function closeReminderModal() {
+  document.getElementById('reminder-form-modal').classList.remove('open');
+  _editReminderId = null;
+}
+
+async function submitReminderForm() {
+  const title    = document.getElementById('rf-title').value.trim();
+  const category = document.getElementById('rf-category').value;
+  const amount   = parseFloat(document.getElementById('rf-amount').value) || null;
+  const clientId = document.getElementById('rf-client').value;
+  const eventDate = document.getElementById('rf-date').value;
+  const remind1  = parseInt(document.getElementById('rf-r1').value) || null;
+  const remind2  = parseInt(document.getElementById('rf-r2').value) || null;
+  const remind3  = parseInt(document.getElementById('rf-r3').value) || null;
+  const notifyEmail    = document.getElementById('rf-email').checked;
+  const notifyTelegram = document.getElementById('rf-telegram').checked;
+  const notes    = document.getElementById('rf-notes').value.trim();
+
+  if (!title || !eventDate) { toast('Please fill in title and due date', 'error'); return; }
+
+  const btn = document.querySelector('#reminder-form-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+
+  const data = { title, category, amount, clientId, eventDate, remind1, remind2, remind3, notifyEmail, notifyTelegram, notes };
+
+  if (_editReminderId) {
+    await State.updateReminder(_editReminderId, data);
+    toast('Reminder updated!');
+  } else {
+    await State.addReminder(data);
+    toast('Reminder added!');
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save reminder'; }
+  closeReminderModal();
+  renderReminders();
+}
+
+async function markReminderPaid(remId) {
+  await State.markReminderPaid(remId);
+  toast('Marked as paid! ✓');
+  renderReminders();
+}
+
+async function confirmDeleteReminder(remId) {
+  const r = State.reminders.find(x => x.id === remId);
+  if (!confirm(`Delete reminder "${r?.title}"? This cannot be undone.`)) return;
+  await State.deleteReminder(remId);
+  toast('Reminder deleted', 'error');
+  renderReminders();
 }
 
 /* ═══════════════════════════════════════════════════════════

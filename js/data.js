@@ -307,6 +307,50 @@ const Sheets = {
       row:[doc.id, doc.clientId, doc.type, doc.number, doc.expiryDate, doc.notes||''] }));
   },
 
+  /* Reminders */
+  async loadReminders() {
+    const rows = await this._get('Reminders!A2:N');
+    if (!rows || !rows.length) return [];
+    return rows.filter(r => r[0]).map(r => ({
+      id:              r[0]  || '',
+      title:           r[1]  || '',
+      category:        r[2]  || 'Custom',
+      amount:          r[3]  ? Number(r[3]) : null,
+      clientId:        r[4]  || '',
+      eventDate:       r[5] || '',
+      remind1:         r[6]  ? Number(r[6]) : null,
+      remind2:         r[7]  ? Number(r[7]) : null,
+      remind3:         r[8]  ? Number(r[8]) : null,
+      notifyEmail:     r[9]  !== 'false' && r[9]  !== false,
+      notifyTelegram:  r[10] !== 'false' && r[10] !== false,
+      notes:           r[11] || '',
+      active:          r[12] !== 'false' && r[12] !== false,
+      paidAt:          r[13] || '',
+    }));
+  },
+  async addReminder(rem) {
+    return !!(await this._post({ action:'append', tab:'Reminders',
+      row:[rem.id, rem.title, rem.category, rem.amount||'', rem.clientId||'',
+           rem.eventDate, rem.remind1||'', rem.remind2||'', rem.remind3||'',
+           String(rem.notifyEmail), String(rem.notifyTelegram),
+           rem.notes||'', 'true', ''] }));
+  },
+  async updateReminder(rem) {
+    const rowNum = await this.findRow('Reminders', rem.id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Reminders', rowNum,
+      row:[rem.id, rem.title, rem.category, rem.amount||'', rem.clientId||'',
+           rem.eventDate, rem.remind1||'', rem.remind2||'', rem.remind3||'',
+           String(rem.notifyEmail), String(rem.notifyTelegram),
+           rem.notes||'', String(rem.active), rem.paidAt||''] }));
+  },
+  async deleteReminder(id) {
+    const rowNum = await this.findRow('Reminders', id);
+    if (rowNum < 0) return false;
+    return !!(await this._post({ action:'update', tab:'Reminders', rowNum,
+      row:['','','','','','','','','','','','','',''] }));
+  },
+
   /* Client notes */
   async loadClientNotes() {
     const rows = await this._get('ClientNotes!A2:E');
@@ -559,6 +603,7 @@ const State = {
   timeLogs:    [],
   messages:    [],
   clientNotes: [],
+  reminders:   [],
   nextId:      Math.floor(Date.now() / 1000),
   useSheets:   true,
 
@@ -594,7 +639,7 @@ const State = {
       const [sheetTasks, sheetComments, sheetClients, sheetUsers,
              sheetPipelines, sheetStages, sheetTemplates,
              sheetActivity, sheetDocs, sheetViews, sheetTimeLogs,
-             sheetMessages, sheetClientNotes] = await Promise.all([
+             sheetMessages, sheetClientNotes, sheetReminders] = await Promise.all([
         Sheets.loadTasks(),
         Sheets.loadComments(),
         Sheets.loadClients(),
@@ -608,6 +653,7 @@ const State = {
         Sheets.loadTimeLogs(),
         Sheets.loadMessages(),
         Sheets.loadClientNotes(),
+        Sheets.loadReminders(),
       ]);
       if (sheetTasks.length > 0) {
         /* Deduplicate by ID — first occurrence wins (original task) */
@@ -676,6 +722,9 @@ const State = {
       }
       if (sheetClientNotes && sheetClientNotes.length > 0) {
         this.clientNotes = sheetClientNotes;
+      }
+      if (sheetReminders) {
+        this.reminders = sheetReminders;
       }
     } catch(e) {
       console.error('[State.loadFromSheets] Failed:', e);
@@ -1131,6 +1180,39 @@ State.deleteDocument = async function(id) {
 
 State.getClientDocs = function(clientId) {
   return this.documents.filter(d => d.clientId === clientId);
+};
+
+/* ─── Reminders ─────────────────────────────────────────── */
+State.addReminder = async function(data) {
+  const rem = { id:'rem'+Date.now(), ...data, active:true, paidAt:'' };
+  this.reminders.push(rem);
+  if (this.useSheets) Sheets.addReminder(rem);
+  return rem;
+};
+
+State.updateReminder = async function(id, patch) {
+  const idx = this.reminders.findIndex(r => r.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.reminders[idx], patch);
+  if (this.useSheets) Sheets.updateReminder(this.reminders[idx]);
+  return this.reminders[idx];
+};
+
+State.deleteReminder = async function(id) {
+  this.reminders = this.reminders.filter(r => r.id !== id);
+  if (this.useSheets) Sheets.deleteReminder(id);
+};
+
+State.markReminderPaid = async function(id) {
+  const today = new Date().toISOString().slice(0,10);
+  return await this.updateReminder(id, { paidAt: today, active: false });
+};
+
+State.upcomingReminders = function() {
+  const today = new Date().toISOString().slice(0,10);
+  return this.reminders
+    .filter(r => r.active && !r.paidAt)
+    .sort((a,b) => (a.eventDate||'').localeCompare(b.eventDate||''));
 };
 
 /* ─── Client Notes ──────────────────────────────────────── */

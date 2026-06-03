@@ -29,6 +29,7 @@ function showPage(pageId, navEl) {
     settings:  'Settings',
     close:     'Monthly close',
     documents: 'Documents',
+    reminders: 'Reminders',
   };
   const titleEl = document.getElementById('page-title');
   if (titleEl) titleEl.textContent = titles[pageId] || '';
@@ -60,6 +61,7 @@ function refreshCurrentPage() {
     case 'settings':  renderSettings();        break;
     case 'close':     renderClosePage();      break;
     case 'documents': renderDocuments();      break;
+    case 'reminders': renderReminders();      break;
   }
 }
 
