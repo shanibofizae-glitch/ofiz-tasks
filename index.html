@@ -1045,11 +1045,78 @@
         <label class="form-label">Notes</label>
         <input type="text" id="rf-notes" class="form-input" placeholder="e.g. Cheque No. 123456, Emirates NBD">
       </div>
+
+      <div class="divider" style="margin:8px 0 14px"></div>
+
+      <!-- Recurrence -->
+      <div class="form-group">
+        <label class="form-label">Recurrence</label>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-sm rec-btn" id="rec-none"
+            onclick="setRecurrenceType('none')" style="background:var(--ink);color:var(--bg-sidebar);border-color:var(--ink)">
+            One-time
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm rec-btn" id="rec-monthly"
+            onclick="setRecurrenceType('monthly')">
+            <i class="ti ti-calendar-repeat" style="font-size:12px"></i> Monthly
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm rec-btn" id="rec-quarterly"
+            onclick="setRecurrenceType('quarterly')">
+            <i class="ti ti-calendar-repeat" style="font-size:12px"></i> Quarterly
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm rec-btn" id="rec-custom"
+            onclick="setRecurrenceType('custom')">
+            <i class="ti ti-calendar-plus" style="font-size:12px"></i> Custom dates
+          </button>
+        </div>
+      </div>
+
+      <!-- Monthly options -->
+      <div id="rec-monthly-opts" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;background:var(--bg);
+          border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+          <i class="ti ti-info-circle" style="color:var(--accent);font-size:14px"></i>
+          <span style="font-size:12.5px;color:var(--ink-2)">Creates one reminder per month, starting from the due date above.</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <input type="number" id="rec-months" class="form-input" value="12" min="1" max="36"
+              style="width:64px;height:30px;text-align:center;font-family:var(--mono)">
+            <span style="font-size:12px;color:var(--ink-2)">months</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quarterly options -->
+      <div id="rec-quarterly-opts" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;background:var(--bg);
+          border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+          <i class="ti ti-info-circle" style="color:var(--accent);font-size:14px"></i>
+          <span style="font-size:12.5px;color:var(--ink-2)">Creates one reminder every 3 months from the due date above.</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <input type="number" id="rec-quarters" class="form-input" value="4" min="1" max="12"
+              style="width:64px;height:30px;text-align:center;font-family:var(--mono)">
+            <span style="font-size:12px;color:var(--ink-2)">quarters</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Custom dates -->
+      <div id="rec-custom-opts" style="display:none">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px">
+          <div style="font-size:12px;color:var(--ink-2);margin-bottom:10px">
+            The due date above is always included. Add extra dates below:
+          </div>
+          <div id="rec-custom-dates" style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px"></div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addRecCustomDate()">
+            <i class="ti ti-plus"></i> Add date
+          </button>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeReminderModal()">Cancel</button>
       <button class="btn btn-primary" onclick="submitReminderForm()">
-        <i class="ti ti-circle-check"></i> Save reminder
+        <i class="ti ti-circle-check"></i> <span id="rf-save-label">Save reminder</span>
       </button>
     </div>
   </div>

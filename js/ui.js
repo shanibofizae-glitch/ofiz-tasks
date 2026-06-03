@@ -3899,26 +3899,108 @@ function renderReminders() {
 }
 
 /* ── Reminder modal ─────────────────────────────────────── */
-let _editReminderId = null;
+let _editReminderId  = null;
+let _recurrenceType  = 'none';
+let _recCustomDates  = [];
+
+/* ── Recurrence helpers ─────────────────────────────────── */
+function setRecurrenceType(type) {
+  _recurrenceType = type;
+  ['none','monthly','quarterly','custom'].forEach(t => {
+    const btn = document.getElementById('rec-' + t);
+    if (btn) {
+      const on = t === type;
+      btn.style.background  = on ? 'var(--ink)' : '';
+      btn.style.color       = on ? 'var(--bg-sidebar)' : '';
+      btn.style.borderColor = on ? 'var(--ink)' : '';
+    }
+  });
+  document.getElementById('rec-monthly-opts').style.display   = type === 'monthly'   ? '' : 'none';
+  document.getElementById('rec-quarterly-opts').style.display = type === 'quarterly' ? '' : 'none';
+  document.getElementById('rec-custom-opts').style.display    = type === 'custom'    ? '' : 'none';
+  /* Update save button label */
+  const lbl = document.getElementById('rf-save-label');
+  if (lbl) {
+    if (type === 'monthly')   lbl.textContent = `Save (generates monthly reminders)`;
+    else if (type === 'quarterly') lbl.textContent = `Save (generates quarterly reminders)`;
+    else if (type === 'custom')    lbl.textContent = `Save (generates ${1 + _recCustomDates.filter(Boolean).length} reminders)`;
+    else lbl.textContent = 'Save reminder';
+  }
+}
+
+function addRecCustomDate() {
+  _recCustomDates.push('');
+  _renderRecCustomDates();
+}
+
+function removeRecCustomDate(idx) {
+  _recCustomDates.splice(idx, 1);
+  _renderRecCustomDates();
+  setRecurrenceType('custom'); /* update label */
+}
+
+function _renderRecCustomDates() {
+  const el = document.getElementById('rec-custom-dates');
+  if (!el) return;
+  el.innerHTML = _recCustomDates.map((d, i) => `
+    <div style="display:flex;gap:7px;align-items:center">
+      <input type="date" class="form-input" value="${d}" style="flex:1;height:34px"
+        oninput="_recCustomDates[${i}]=this.value;setRecurrenceType('custom')">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="removeRecCustomDate(${i})">
+        <i class="ti ti-x"></i>
+      </button>
+    </div>`).join('');
+}
+
+function _resetRecurrence() {
+  _recurrenceType = 'none';
+  _recCustomDates = [];
+  setRecurrenceType('none');
+  const el = document.getElementById('rec-custom-dates');
+  if (el) el.innerHTML = '';
+}
+
+function _generateDates(baseDate) {
+  const dates = [baseDate];
+  if (_recurrenceType === 'monthly') {
+    const months = parseInt(document.getElementById('rec-months')?.value) || 12;
+    const base   = new Date(baseDate);
+    for (let i = 1; i < months; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() + i, base.getDate());
+      dates.push(d.toISOString().slice(0,10));
+    }
+  } else if (_recurrenceType === 'quarterly') {
+    const qtrs = parseInt(document.getElementById('rec-quarters')?.value) || 4;
+    const base = new Date(baseDate);
+    for (let i = 1; i < qtrs; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() + (i * 3), base.getDate());
+      dates.push(d.toISOString().slice(0,10));
+    }
+  } else if (_recurrenceType === 'custom') {
+    _recCustomDates.filter(Boolean).forEach(d => { if (!dates.includes(d)) dates.push(d); });
+    dates.sort();
+  }
+  return dates;
+}
 
 function openAddReminderModal() {
   _editReminderId = null;
   document.getElementById('reminder-form-title').textContent = 'Add reminder';
-  document.getElementById('rf-id').value        = '';
-  document.getElementById('rf-title').value     = '';
-  document.getElementById('rf-category').value  = 'PDC Cheque';
-  document.getElementById('rf-amount').value    = '';
-  document.getElementById('rf-date').value      = '';
-  document.getElementById('rf-r1').value        = '7';
-  document.getElementById('rf-r2').value        = '3';
-  document.getElementById('rf-r3').value        = '1';
-  document.getElementById('rf-email').checked   = true;
+  document.getElementById('rf-id').value         = '';
+  document.getElementById('rf-title').value      = '';
+  document.getElementById('rf-category').value   = 'PDC Cheque';
+  document.getElementById('rf-amount').value     = '';
+  document.getElementById('rf-date').value       = '';
+  document.getElementById('rf-r1').value         = '7';
+  document.getElementById('rf-r2').value         = '3';
+  document.getElementById('rf-r3').value         = '1';
+  document.getElementById('rf-email').checked    = true;
   document.getElementById('rf-telegram').checked = true;
-  document.getElementById('rf-notes').value     = '';
-  /* Populate client dropdown */
+  document.getElementById('rf-notes').value      = '';
   document.getElementById('rf-client').innerHTML =
     `<option value="">No client</option>` +
     State.clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  _resetRecurrence();
   document.getElementById('reminder-form-modal').classList.add('open');
   setTimeout(() => document.getElementById('rf-title').focus(), 100);
 }
@@ -3942,6 +4024,7 @@ function openEditReminderModal(remId) {
   document.getElementById('rf-client').innerHTML =
     `<option value="">No client</option>` +
     State.clients.map(c => `<option value="${c.id}" ${c.id===r.clientId?'selected':''}>${c.name}</option>`).join('');
+  _resetRecurrence(); /* edit mode = one-time only */
   document.getElementById('reminder-form-modal').classList.add('open');
 }
 
@@ -3968,17 +4051,28 @@ async function submitReminderForm() {
   const btn = document.querySelector('#reminder-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
-  const data = { title, category, amount, clientId, eventDate, remind1, remind2, remind3, notifyEmail, notifyTelegram, notes };
+  const baseData = { title, category, amount, clientId, remind1, remind2, remind3, notifyEmail, notifyTelegram, notes };
 
   if (_editReminderId) {
-    await State.updateReminder(_editReminderId, data);
+    await State.updateReminder(_editReminderId, { ...baseData, eventDate });
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save reminder'; }
     toast('Reminder updated!');
-  } else {
-    await State.addReminder(data);
-    toast('Reminder added!');
+    closeReminderModal();
+    renderReminders();
+    return;
+  }
+
+  /* Generate all dates based on recurrence */
+  const dates = _generateDates(eventDate);
+  for (const date of dates) {
+    await State.addReminder({ ...baseData, eventDate: date });
   }
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save reminder'; }
+
+  if (dates.length === 1) toast('Reminder added!');
+  else toast(`${dates.length} reminders created!`);
+
   closeReminderModal();
   renderReminders();
 }
