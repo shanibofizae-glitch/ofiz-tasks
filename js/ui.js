@@ -321,6 +321,12 @@ let taskFilter    = { status:'active', type:'all', clientId:'all', assigneeId:'a
 let groupByClient = false;
 
 function renderAllTasks() {
+  /* Keep dropdowns in sync with current filter state */
+  const csel = document.getElementById('filter-client-select');
+  const asel = document.getElementById('filter-assignee-select');
+  if (csel && csel.value !== taskFilter.clientId)   csel.value = taskFilter.clientId   || 'all';
+  if (asel && asel.value !== taskFilter.assigneeId) asel.value = taskFilter.assigneeId || 'all';
+
   const tasks = State.filterTasks(taskFilter).sort((a, b) => {
     if (!a.dueDate && !b.dueDate) return 0;
     if (!a.dueDate) return 1;
@@ -512,7 +518,12 @@ function filterByClient(clientId) {
   taskFilter.status   = 'active';
   taskFilter.type     = 'all';
   showPage('tasks', document.querySelector('[data-page=tasks]'));
-  setTimeout(renderAllTasks, 50);
+  setTimeout(() => {
+    /* Sync the dropdown to the active filter */
+    const sel = document.getElementById('filter-client-select');
+    if (sel) sel.value = clientId;
+    renderAllTasks();
+  }, 60);
 }
 
 /* ── New client modal ───────────────────────────────────── */

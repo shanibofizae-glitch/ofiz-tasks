@@ -2304,10 +2304,10 @@ body.dark {
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.7px;
-  padding: 4px 2px 6px;
-  margin-top: 10px;
-  border-bottom: 1.5px solid var(--border);
-  margin-bottom: 6px;
+  padding: 3px 2px 5px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 5px;
 }
 .date-group-head:first-child { margin-top: 0; }
 .date-group-head.overdue-head {
@@ -2347,7 +2347,7 @@ body.dark {
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
   align-items: start;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 @media (max-width: 1100px) {
   .date-group-section { grid-template-columns: 1fr; }
