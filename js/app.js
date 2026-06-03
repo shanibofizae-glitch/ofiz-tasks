@@ -333,7 +333,7 @@ async function manualRefresh() {
 
 /* ── PWA Service Worker ─────────────────────────────────── */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/ofiz-tasks/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
 /* ── Init ───────────────────────────────────────────────── */
