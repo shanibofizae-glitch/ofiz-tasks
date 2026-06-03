@@ -157,6 +157,17 @@ const STAGE_COLORS = [
 ];
 let _colorPickerTarget = null;
 
+/* ── Skeleton loader ────────────────────────────────────── */
+function renderSkeleton(containerId, count = 4) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = Array.from({ length: count }, () => `
+    <div class="skeleton-card">
+      <div class="skeleton skeleton-line title"></div>
+      <div class="skeleton skeleton-line short"></div>
+    </div>`).join('');
+}
+
 /* ── Task list renderer ─────────────────────────────────── */
 function renderTaskList(tasks, containerId) {
   const el = document.getElementById(containerId);

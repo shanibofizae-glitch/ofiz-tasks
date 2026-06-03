@@ -179,7 +179,9 @@
         <button class="btn btn-ghost btn-sm" onclick="printTasks()" id="print-btn" title="Export / Print" style="display:none">
           <i class="ti ti-printer"></i>
         </button>
-        <button class="btn btn-ghost btn-sm" onclick="refreshCurrentPage()" title="Refresh">
+        <span id="sync-indicator" style="font-size:10.5px;color:var(--ink-4);font-family:var(--mono);
+          white-space:nowrap;display:none"></span>
+        <button class="btn btn-ghost btn-sm" onclick="manualRefresh()" title="Refresh data from sheet" id="refresh-btn">
           <i class="ti ti-refresh"></i>
         </button>
         <button class="btn btn-primary btn-sm" id="btn-new-task" data-admin-only onclick="openNewTaskModal()">

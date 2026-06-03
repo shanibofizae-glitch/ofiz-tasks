@@ -111,27 +111,45 @@ const Sheets = {
     }
   },
 
-  /* WRITE — uses Apps Script Web App, handles auth internally */
-  async _post(payload) {
+  /* WRITE — uses Apps Script Web App, with retry logic */
+  async _post(payload, attempt = 0) {
     if (!CONFIG.SCRIPT_URL || CONFIG.SCRIPT_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL') {
-      console.error('[Sheets._post] SCRIPT_URL not set in CONFIG');
+      console.error('[Sheets._post] SCRIPT_URL not set');
       return false;
     }
     try {
       const res = await fetch(CONFIG.SCRIPT_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body:    JSON.stringify(payload),
-        redirect: 'follow',
+        method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload), redirect: 'follow',
       });
       const text = await res.text();
       let json;
       try { json = JSON.parse(text); }
-      catch(e) { console.error('[Sheets._post] bad JSON response:', text); return false; }
-      if (!json.ok) { console.error('[Sheets._post] script error:', json.error); return false; }
+      catch(e) {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          return this._post(payload, attempt + 1);
+        }
+        _showSyncError('Sheet write failed — please refresh');
+        return false;
+      }
+      if (!json.ok) {
+        console.error('[Sheets._post] error:', json.error);
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          return this._post(payload, attempt + 1);
+        }
+        _showSyncError('Sheet write failed: ' + (json.error || 'unknown error'));
+        return false;
+      }
+      _updateSyncTime();
       return json.data;
     } catch(e) {
-      console.error('[Sheets._post] fetch failed:', e);
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        return this._post(payload, attempt + 1);
+      }
+      _showSyncError('No connection — changes may not be saved');
       return false;
     }
   },
@@ -642,6 +660,7 @@ const State = {
   reminders:   [],
   nextId:      Math.floor(Date.now() / 1000),
   useSheets:   true,
+  lastSyncAt:  null,
 
   uid()  { return 't'  + (++this.nextId); },
   cmId() { return 'cm' + (++this.nextId); },
@@ -762,8 +781,11 @@ const State = {
       if (sheetReminders) {
         this.reminders = sheetReminders;
       }
+      this.lastSyncAt = new Date();
+      _updateSyncTime();
     } catch(e) {
       console.error('[State.loadFromSheets] Failed:', e);
+      _showSyncError('Failed to load data from Sheet');
     }
   },
 
@@ -1076,6 +1098,8 @@ State.updateClient = async function(id, patch) {
 };
 
 State.deleteClient = async function(id) {
+  /* Unassign tasks that belong to this client */
+  this.tasks.forEach(t => { if (t.clientId === id) t.clientId = ''; });
   this.clients = this.clients.filter(c => c.id !== id);
   if (this.useSheets) {
     const rowNum = await Sheets.findRow('Clients', id);

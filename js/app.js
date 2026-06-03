@@ -179,15 +179,32 @@ async function loginAs(userId) {
   if (State.useSheets) {
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = 'Loading…';
+    /* Show skeleton while loading */
+    renderSkeleton('dash-task-list', 6);
     await State.loadFromSheets();
+    if (titleEl) titleEl.textContent = 'Dashboard';
   }
 
   showPage('dashboard');
   setTimeout(updateChatBadge, 500);
   _startClock();
+  _startAutoSync();
+  const si = document.getElementById('sync-indicator');
+  if (si) si.style.display = '';
 }
 
-let _clockTimer = null;
+let _clockTimer    = null;
+let _autoSyncTimer = null;
+
+function _startAutoSync() {
+  if (_autoSyncTimer) clearInterval(_autoSyncTimer);
+  _autoSyncTimer = setInterval(async () => {
+    if (!State.user || !State.useSheets) return;
+    await State.loadFromSheets();
+    refreshCurrentPage();
+  }, 90000); /* refresh every 90 seconds */
+}
+
 
 function _startClock() {
   const el = document.getElementById('live-clock');
@@ -206,7 +223,10 @@ function _startClock() {
 }
 
 function logout() {
-  if (_clockTimer) { clearInterval(_clockTimer); _clockTimer = null; }
+  if (_clockTimer)    { clearInterval(_clockTimer);    _clockTimer    = null; }
+  if (_autoSyncTimer) { clearInterval(_autoSyncTimer); _autoSyncTimer = null; }
+  const si = document.getElementById('sync-indicator');
+  if (si) si.style.display = 'none';
   document.getElementById('live-clock').style.display = 'none';
   closeChat();
   State.user     = null;
@@ -272,6 +292,43 @@ document.addEventListener('click', e => {
     }
   }
 });
+
+/* ── Sync helpers (used by data.js) ────────────────────── */
+let _syncErrorTimer = null;
+
+function _updateSyncTime() {
+  State.lastSyncAt = new Date();
+  const el = document.getElementById('sync-indicator');
+  if (el) { el.textContent = 'Synced just now'; el.style.display = ''; }
+  /* Update to relative time after 1 min */
+  setTimeout(() => {
+    if (el && State.lastSyncAt) {
+      const mins = Math.round((Date.now() - State.lastSyncAt) / 60000);
+      if (mins < 60) el.textContent = `Synced ${mins}m ago`;
+    }
+  }, 60000);
+}
+
+function _showSyncError(msg) {
+  if (_syncErrorTimer) clearTimeout(_syncErrorTimer);
+  let banner = document.getElementById('sync-error-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'sync-error-banner';
+    banner.className = 'sync-error-banner';
+    document.body.appendChild(banner);
+  }
+  banner.innerHTML = `<i class="ti ti-wifi-off"></i> ${msg}`;
+  _syncErrorTimer = setTimeout(() => banner.remove(), 6000);
+}
+
+async function manualRefresh() {
+  const btn = document.getElementById('refresh-btn');
+  if (btn) { btn.querySelector('i').style.animation = 'spin 0.8s linear infinite'; }
+  if (State.useSheets) await State.loadFromSheets();
+  refreshCurrentPage();
+  if (btn) { btn.querySelector('i').style.animation = ''; }
+}
 
 /* ── PWA Service Worker ─────────────────────────────────── */
 if ('serviceWorker' in navigator) {
