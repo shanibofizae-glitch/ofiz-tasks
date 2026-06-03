@@ -199,6 +199,7 @@ const Sheets = {
       c.classification||'Mainland', String(c.vatRegistered||false),
       String(c.wpsRequired||false), String(c.payrollManaged||false),
       c.assignedAccountantId||'', c.clientSince||'',
+      c.sortOrder !== undefined ? String(c.sortOrder) : '',
     ];
   },
 
@@ -212,7 +213,7 @@ const Sheets = {
     const rowNum = await this.findRow('Clients', clientId);
     if (rowNum < 0) return false;
     return !!(await this._post({ action:'update', tab:'Clients', rowNum,
-      row:['','','','','','','','','','','','','','','','','','','',''] }));
+      row:['','','','','','','','','','','','','','','','','','','','',''] }));
   },
 
   /* ── Pipeline delete ──────────────────────────────── */
@@ -461,7 +462,7 @@ const Sheets = {
 
   /* Load all clients from Clients tab on login */
   async loadClients() {
-    const rows = await this._get('Clients!A2:T');
+    const rows = await this._get('Clients!A2:U');
     if (!rows || rows.length === 0) return [];
     return rows
       .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
@@ -486,6 +487,7 @@ const Sheets = {
         payrollManaged:       r[17] === 'true',
         assignedAccountantId: r[18] || '',
         clientSince:          r[19] || '',
+        sortOrder:            r[20] ? Number(r[20]) : 999,
       }));
   },
 
@@ -1087,6 +1089,14 @@ State.addUser = async function(data) {
 State.deleteUser = async function(id) {
   this.users = this.users.filter(u => u.id !== id);
   if (this.useSheets) Sheets.deleteUser(id);
+};
+
+State.saveClientOrder = async function() {
+  /* Write sortOrder for every client — fires in parallel */
+  this.clients.forEach((c, i) => { c.sortOrder = i; });
+  if (this.useSheets) {
+    await Promise.all(this.clients.map(c => Sheets.updateClient(c)));
+  }
 };
 
 State.updateClient = async function(id, patch) {

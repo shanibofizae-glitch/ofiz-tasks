@@ -474,43 +474,106 @@ function setFilter(key, val, el) {
 }
 
 /* ── Clients page ───────────────────────────────────────── */
+let _dragClientId = null;
+
 function renderClients() {
-  const el     = document.getElementById('client-grid');
+  const el = document.getElementById('client-grid');
   if (!el) return;
-  const health = State.clientHealth();
+
+  const health  = State.clientHealth()
+    .sort((a,b) => (State.getClient(a.id)?.sortOrder ?? 999) - (State.getClient(b.id)?.sortOrder ?? 999));
+  const isAdmin = State.user?.role === 'admin';
+
   el.innerHTML = health.map(c => {
-    const hs  = State.clientHealthScore(c.id);
-    const vat = State.vatNextDue(c.id);
-    const today = new Date().toISOString().slice(0,10);
+    const hs      = State.clientHealthScore(c.id);
+    const vat     = State.vatNextDue(c.id);
     const vatSoon = vat && vat <= new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+    const cls     = State.getClient(c.id)?.classification || 'Mainland';
     return `
-    <div class="client-card" onclick="openClientProfile('${c.id}')">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
-        <div class="client-initial" style="background:${c.bg};color:${c.color};margin-bottom:0">${c.short}</div>
-        <div class="health-badge" style="background:${hs.bg};color:${hs.color}" title="${hs.label}">${hs.score}</div>
-      </div>
-      <div class="client-name">${c.name}</div>
-      <div class="client-stats">
-        <span>${c.total} task${c.total !== 1 ? 's' : ''} total</span>
-        <span style="color:var(--accent)">${c.done} completed</span>
-        ${c.overdue ? `<span style="color:var(--red)">${c.overdue} overdue</span>` : ''}
-      </div>
-      <div class="progress-wrap">
-        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--ink-3)">
-          <span>Completion</span><span style="font-family:var(--mono)">${c.pct}%</span>
+    <div class="client-card" data-client-id="${c.id}"
+         draggable="${isAdmin}"
+         onclick="openClientProfile('${c.id}')"
+         ondragstart="clientDragStart(event,'${c.id}')"
+         ondragend="clientDragEnd(event)"
+         ondragover="clientDragOver(event)"
+         ondragleave="clientDragLeave(event)"
+         ondrop="clientDrop(event,'${c.id}')">
+      <div class="client-card-accent" style="background:${c.color}"></div>
+      ${isAdmin ? `<i class="ti ti-grip-vertical client-drag-handle" onclick="event.stopPropagation()" title="Drag to reorder"></i>` : ''}
+      <div class="client-card-body">
+        <div class="client-card-top">
+          <div class="client-initial" style="background:${c.bg};color:${c.color}">${c.short}</div>
+          <div class="client-name-block">
+            <div class="client-name" title="${c.name}">${esc(c.name)}</div>
+            <div class="client-sub">
+              <span>${c.short}</span><span style="color:var(--border-hi)">·</span><span>${cls}</span>
+            </div>
+          </div>
+          <div class="health-badge" style="background:${hs.bg};color:${hs.color};flex-shrink:0"
+               title="${hs.label}">${hs.score}</div>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill"
-               style="width:${c.pct}%;background:${c.overdue ? 'var(--amber)' : 'var(--accent)'}"></div>
+        <div class="client-stats">
+          <div class="client-stat">
+            <div class="client-stat-val">${c.total}</div>
+            <div class="client-stat-lbl">Tasks</div>
+          </div>
+          <div class="client-stat">
+            <div class="client-stat-val" style="color:var(--accent)">${c.done}</div>
+            <div class="client-stat-lbl">Done</div>
+          </div>
+          <div class="client-stat">
+            <div class="client-stat-val" style="color:${c.overdue?'var(--red)':'var(--ink)'}">${c.overdue}</div>
+            <div class="client-stat-lbl">Overdue</div>
+          </div>
         </div>
+        <div class="progress-wrap">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3);margin-bottom:4px">
+            <span>Completion</span>
+            <span style="font-family:var(--mono);font-weight:700;color:${c.overdue?'var(--amber)':'var(--accent)'}">${c.pct}%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${c.pct}%;background:${c.overdue?'var(--amber)':'var(--accent)'}"></div>
+          </div>
+        </div>
+        ${vat ? `<div style="margin-top:8px;font-size:10.5px;color:${vatSoon?'var(--amber)':'var(--ink-3)'};
+          display:flex;align-items:center;gap:4px">
+          <i class="ti ti-receipt" style="font-size:11px"></i> VAT due ${fmtDate(vat)}
+        </div>` : ''}
       </div>
-      ${vat ? `<div style="margin-top:8px;font-size:10.5px;color:${vatSoon?'var(--amber)':'var(--ink-3)'};
-        display:flex;align-items:center;gap:4px">
-        <i class="ti ti-receipt" style="font-size:11px"></i>
-        VAT due ${fmtDate(vat)}
-      </div>` : ''}
     </div>`;
   }).join('');
+}
+
+/* ── Client card drag & drop ────────────────────────────── */
+function clientDragStart(e, id) {
+  _dragClientId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => e.currentTarget?.classList.add('dragging'), 0);
+}
+function clientDragEnd(e) {
+  e.currentTarget?.classList.remove('dragging');
+  document.querySelectorAll('.client-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+function clientDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+function clientDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drag-over');
+}
+async function clientDrop(e, targetId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!_dragClientId || _dragClientId === targetId) return;
+  const fi = State.clients.findIndex(c => c.id === _dragClientId);
+  const ti = State.clients.findIndex(c => c.id === targetId);
+  if (fi < 0 || ti < 0) return;
+  const [moved] = State.clients.splice(fi, 1);
+  State.clients.splice(ti, 0, moved);
+  _dragClientId = null;
+  renderClients();
+  toast('Order saved');
+  await State.saveClientOrder();
 }
 
 function filterByClient(clientId) {
