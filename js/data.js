@@ -38,9 +38,9 @@ function _parseSt(val) {
 }
 
 const CONFIG = {
-  SHEET_ID:   '1flHjdPaidpBxm8n1ehimKinVFJpPPE0DsbmfQhegstc',
-  API_KEY:    'AIzaSyA6Z0B8SAenTIy2kqPcJX0Jz5WXB6OCYls',
-  CLIENT_ID:  '360095905997-73kqtothq7uibqm0m2qpp0dep8jae409.apps.googleusercontent.com',
+  SUPABASE_URL: 'https://xtgywfvcemnnamtjybts.supabase.co',
+  SUPABASE_KEY: 'sb_publishable_BEzuQYssb6I0I8rLg5atNw_Txhw1PsF',
+  /* Apps Script kept for email/telegram notifications only */
   SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxu1jwOP52lZwRNebS5C6SvanYIVZ_RJ4Aq8gELwGLHG7aXTo3_Wl9pJl_Qo_MMF0ro/exec',
 };
 
@@ -88,563 +88,187 @@ const DEMO = {
 };
 
 /* ══════════════════════════════════════════════════════════
-   Google Sheets API Layer
-   - Reads  → direct Sheets REST API (API key, no auth needed)
-   - Writes → Apps Script Web App (bypasses 401 auth issue)
+   Supabase Data Layer  (replaces Google Sheets)
+   All reads + writes go to Supabase PostgreSQL.
+   Apps Script is kept only for email/telegram notifications.
    ══════════════════════════════════════════════════════════ */
+
+/* ── Field mappers: DB (snake_case) ↔ JS (camelCase) ─── */
+function _taskFromDb(r)    { return { id:r.id, title:r.title, clientId:r.client_id, type:r.type||'oneoff', status:r.status||'pending', priority:r.priority||'medium', assigneeId:r.assignee_id, dueDate:r.due_date||'', notes:r.notes||'', createdAt:r.created_at||'', closedAt:r.closed_at, closeComment:r.close_comment||'', pipelineId:r.pipeline_id, pipelineStageId:r.pipeline_stage_id, subtasks:Array.isArray(r.subtasks)?r.subtasks:[], blockedBy:Array.isArray(r.blocked_by)?r.blocked_by:[], stageEnteredAt:r.stage_entered_at||null }; }
+function _taskToDb(t)      { return { id:t.id, title:t.title, client_id:t.clientId||null, type:t.type, status:t.status, priority:t.priority, assignee_id:t.assigneeId||null, due_date:t.dueDate||null, notes:t.notes||'', created_at:t.createdAt, closed_at:t.closedAt||null, close_comment:t.closeComment||'', pipeline_id:t.pipelineId||null, pipeline_stage_id:t.pipelineStageId||null, subtasks:t.subtasks||[], blocked_by:t.blockedBy||[], stage_entered_at:t.stageEnteredAt||null }; }
+function _clientFromDb(r)  { return { id:r.id, name:r.name, short:r.short, color:r.color, bg:r.bg, active:r.active, tradeLicense:r.trade_license||'', trn:r.trn||'', corporateTaxNo:r.corporate_tax_no||'', incorporationDate:r.incorporation_date||'', contactName:r.contact_name||'', contactPhone:r.contact_phone||'', contactEmail:r.contact_email||'', contactWhatsapp:r.contact_whatsapp||'', classification:r.classification||'Mainland', vatRegistered:!!r.vat_registered, wpsRequired:!!r.wps_required, payrollManaged:!!r.payroll_managed, assignedAccountantId:r.assigned_accountant_id||'', clientSince:r.client_since||'', sortOrder:r.sort_order??999, vatStartDate:r.vat_start_date||'', ctAnniversaryDate:r.ct_anniversary_date||'', tags:Array.isArray(r.tags)?r.tags:[] }; }
+function _clientToDb(c)    { return { id:c.id, name:c.name, short:c.short, color:c.color, bg:c.bg, active:c.active!==false, trade_license:c.tradeLicense||'', trn:c.trn||'', corporate_tax_no:c.corporateTaxNo||'', incorporation_date:c.incorporationDate||null, contact_name:c.contactName||'', contact_phone:c.contactPhone||'', contact_email:c.contactEmail||'', contact_whatsapp:c.contactWhatsapp||'', classification:c.classification||'Mainland', vat_registered:!!c.vatRegistered, wps_required:!!c.wpsRequired, payroll_managed:!!c.payrollManaged, assigned_accountant_id:c.assignedAccountantId||null, client_since:c.clientSince||null, sort_order:c.sortOrder??0, vat_start_date:c.vatStartDate||null, ct_anniversary_date:c.ctAnniversaryDate||null, tags:c.tags||[] }; }
+function _userFromDb(r)    { return { id:r.id, name:r.name, email:r.email, role:r.role||'viewer', initials:r.initials||'?', avClass:r.av_class||'av-viewer', password:r.password||'', telegramChatId:r.telegram_chat_id||'' }; }
+function _userToDb(u)      { return { id:u.id, name:u.name, email:u.email, role:u.role, initials:u.initials, av_class:u.avClass, password:u.password, telegram_chat_id:u.telegramChatId||'' }; }
+function _commentFromDb(r) { return { id:r.id, taskId:r.task_id, userId:r.user_id, text:r.text, createdAt:r.created_at }; }
+function _commentToDb(c)   { return { id:c.id, task_id:c.taskId, user_id:c.userId, text:c.text, created_at:c.createdAt }; }
+function _pipeFromDb(r)    { return { id:r.id, name:r.name, desc:r.description||'', active:r.active!==false }; }
+function _stageFromDb(r)   { return { id:r.id, pipelineId:r.pipeline_id, order:r.order||0, name:r.name, color:r.color||'', targetDays:r.target_days||0 }; }
+function _stageToDb(s)     { return { id:s.id, pipeline_id:s.pipelineId, order:s.order, name:s.name, color:s.color||'', target_days:s.targetDays||0 }; }
+function _tplFromDb(r)     { return { id:r.id, title:r.title, clientId:r.client_id, recurrence:r.recurrence||'monthly', dayOfMonth:r.day_of_month||null, dayOfWeek:r.day_of_week||null, assigneeId:r.assignee_id, active:r.active!==false, priority:r.priority||'medium', notes:r.notes||'', subtasks:Array.isArray(r.subtasks)?r.subtasks:[], pipelineId:r.pipeline_id||'', pipelineStageId:r.pipeline_stage_id||'', estimatedHours:r.estimated_hours||0, defaultComments:Array.isArray(r.default_comments)?r.default_comments:[], templateDependencies:Array.isArray(r.template_dependencies)?r.template_dependencies:[] }; }
+function _tplToDb(t)       { return { id:t.id, title:t.title, client_id:t.clientId, recurrence:t.recurrence, day_of_month:t.dayOfMonth||null, day_of_week:t.dayOfWeek||null, assignee_id:t.assigneeId, active:t.active!==false, priority:t.priority||'medium', notes:t.notes||'', subtasks:t.subtasks||[], pipeline_id:t.pipelineId||null, pipeline_stage_id:t.pipelineStageId||null, estimated_hours:t.estimatedHours||0, default_comments:t.defaultComments||[], template_dependencies:t.templateDependencies||[] }; }
+function _docFromDb(r)     { return { id:r.id, clientId:r.client_id, type:r.type, number:r.number||'', expiryDate:r.expiry_date, notes:r.notes||'' }; }
+function _tlFromDb(r)      { return { id:r.id, taskId:r.task_id, userId:r.user_id, hours:r.hours||0, description:r.description||'', date:r.date, billable:r.billable!==false }; }
+function _msgFromDb(r)     { return { id:r.id, fromUserId:r.from_user_id, channel:r.channel, text:r.text, createdAt:r.created_at }; }
+function _cnoteFromDb(r)   { return { id:r.id, clientId:r.client_id, userId:r.user_id, text:r.text, createdAt:r.created_at }; }
+function _remFromDb(r)     { return { id:r.id, title:r.title, category:r.category||'Custom', amount:r.amount, clientId:r.client_id||'', eventDate:r.event_date, remind1:r.remind1, remind2:r.remind2, remind3:r.remind3, notifyEmail:r.notify_email!==false, notifyTelegram:r.notify_telegram!==false, notes:r.notes||'', active:r.active!==false, paidAt:r.paid_at||'', recurrence:r.recurrence||'none', recurrenceConfig:r.recurrence_config||null, paidDates:Array.isArray(r.paid_dates)?r.paid_dates:[], assignedUserId:r.assigned_user_id||'' }; }
+function _remToDb(r)       { return { id:r.id, title:r.title, category:r.category, amount:r.amount||null, client_id:r.clientId||null, event_date:r.eventDate, remind1:r.remind1||null, remind2:r.remind2||null, remind3:r.remind3||null, notify_email:r.notifyEmail!==false, notify_telegram:r.notifyTelegram!==false, notes:r.notes||'', active:r.active!==false, paid_at:r.paidAt||null, recurrence:r.recurrence||'none', recurrence_config:r.recurrenceConfig||null, paid_dates:r.paidDates||[], assigned_user_id:r.assignedUserId||null }; }
+function _svFromDb(r)      { return { id:r.id, name:r.name, userId:r.user_id, filters:r.filters||{} }; }
+
 const Sheets = {
+  _sb: null,
 
-  /* READ — uses API key directly, works fine for reading */
-  async _get(range) {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}/values/${range}?key=${CONFIG.API_KEY}`;
+  init() {
+    if (typeof window !== 'undefined' && window.supabase) {
+      this._sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+    }
+  },
+
+  _q(table) { return this._sb.from(table); },
+
+  /* Keep _post for Apps Script notifications (email/telegram) only */
+  async _post(payload) {
+    if (!CONFIG.SCRIPT_URL) return false;
     try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        const err = await res.json();
-        console.error('[Sheets._get] error:', err.error?.message);
-        return null;
-      }
-      return (await res.json()).values || [];
-    } catch(e) {
-      console.error('[Sheets._get] fetch failed:', e);
-      return null;
-    }
+      const res = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload), redirect:'follow' });
+      const json = await res.json().catch(()=>({ok:false}));
+      return json.ok ? json.data : false;
+    } catch(e) { return false; }
   },
 
-  /* WRITE — uses Apps Script Web App, with retry logic */
-  async _post(payload, attempt = 0) {
-    if (!CONFIG.SCRIPT_URL || CONFIG.SCRIPT_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL') {
-      console.error('[Sheets._post] SCRIPT_URL not set');
-      return false;
-    }
-    try {
-      const res = await fetch(CONFIG.SCRIPT_URL, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload), redirect: 'follow',
-      });
-      const text = await res.text();
-      let json;
-      try { json = JSON.parse(text); }
-      catch(e) {
-        if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          return this._post(payload, attempt + 1);
-        }
-        _showSyncError('Sheet write failed — please refresh');
-        return false;
-      }
-      if (!json.ok) {
-        console.error('[Sheets._post] error:', json.error);
-        if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          return this._post(payload, attempt + 1);
-        }
-        _showSyncError('Sheet write failed: ' + (json.error || 'unknown error'));
-        return false;
-      }
-      _updateSyncTime();
-      return json.data;
-    } catch(e) {
-      if (attempt < 2) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-        return this._post(payload, attempt + 1);
-      }
-      _showSyncError('No connection — changes may not be saved');
-      return false;
-    }
-  },
-
-  /* Find which row number a task ID is in (1-indexed) */
-  async findTaskRow(taskId) {
-    const result = await this._post({ action:'findRow', id:taskId });
-    if (result === false || result === -1) return -1;
-    return Number(result);
-  },
-
-  /* Find a row in any tab by ID (Apps Script must support tab param) */
-  async findRow(tab, id) {
-    const result = await this._post({ action:'findRow', tab, id });
-    if (result === false || result === -1) return -1;
-    return Number(result);
-  },
-
-  /* ── User writes ──────────────────────────────────── */
-  async updateUser(user) {
-    const rowNum = await this.findRow('Users', user.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Users', rowNum,
-      row:[user.id, user.name, user.email, user.role, user.initials,
-           user.avClass, user.password, user.telegramChatId||''] }));
-  },
-
-  async addUser(user) {
-    return !!(await this._post({ action:'append', tab:'Users',
-      row:[user.id, user.name, user.email, user.role, user.initials,
-           user.avClass, user.password, user.telegramChatId||''] }));
-  },
-
-  async deleteUser(userId) {
-    const rowNum = await this.findRow('Users', userId);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Users', rowNum,
-      row:['','','','','','','',''] }));
-  },
-
-  /* ── Client writes ────────────────────────────────── */
-  _clientRow(c) {
-    return [
-      c.id, c.name, c.short, c.color, c.bg, String(c.active),
-      c.tradeLicense||'', c.trn||'', c.corporateTaxNo||'', c.incorporationDate||'',
-      c.contactName||'', c.contactPhone||'', c.contactEmail||'', c.contactWhatsapp||'',
-      c.classification||'Mainland', String(c.vatRegistered||false),
-      String(c.wpsRequired||false), String(c.payrollManaged||false),
-      c.assignedAccountantId||'', c.clientSince||'',
-      c.sortOrder !== undefined ? String(c.sortOrder) : '',
-      c.vatStartDate||'', c.ctAnniversaryDate||'',
-      Array.isArray(c.tags) ? c.tags.join(',') : (c.tags||''),
-    ];
-  },
-
-  async updateClient(client) {
-    const rowNum = await this.findRow('Clients', client.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Clients', rowNum, row:this._clientRow(client) }));
-  },
-
-  async deleteClient(clientId) {
-    const rowNum = await this.findRow('Clients', clientId);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Clients', rowNum,
-      row:['','','','','','','','','','','','','','','','','','','','',''] }));
-  },
-
-  /* ── Pipeline delete ──────────────────────────────── */
-  async deletePipeline(pipelineId) {
-    const rowNum = await this.findRow('Pipelines', pipelineId);
-    if (rowNum >= 0) {
-      await this._post({ action:'update', tab:'Pipelines', rowNum, row:['','','',''] });
-    }
-    return true;
-  },
-
-  /* Convert task object to a flat array matching sheet columns */
-  taskToRow(task) {
-    return [
-      task.id              || '',
-      task.title           || '',
-      task.clientId        || '',
-      task.type            || '',
-      task.status          || '',
-      task.priority        || '',
-      task.assigneeId      || '',
-      task.dueDate         || '',
-      task.notes           || '',
-      task.createdAt       || '',
-      task.closedAt        || '',
-      task.closeComment    || '',
-      task.pipelineId      || '',
-      task.pipelineStageId || '',
-      (task.subtasks  && task.subtasks.length)  ? JSON.stringify(task.subtasks)  : '',
-      (task.blockedBy && task.blockedBy.length) ? JSON.stringify(task.blockedBy) : '',
-      task.stageEnteredAt || '',
-    ];
-  },
-
-  /* Convert comment object to a flat array matching AuditLog columns */
-  commentToRow(cm) {
-    return [ cm.id, cm.taskId, cm.userId, cm.text, cm.createdAt ];
-  },
-
-  /* Append a new task row */
-  async addTask(task) {
-    console.log('[Sheets] Writing new task to sheet:', task.title);
-    const result = await this._post({ action:'append', tab:'Tasks', row:this.taskToRow(task) });
-    if (result !== false) console.log('[Sheets] Task written successfully');
-    return result !== false;
-  },
-
-  /* Update an existing task row */
-  async updateTask(task) {
-    const rowNum = await this.findTaskRow(task.id);
-    if (rowNum < 0) {
-      console.warn('[Sheets] Task not found in sheet for update:', task.id);
-      return false;
-    }
-    console.log('[Sheets] Updating task at row', rowNum);
-    const result = await this._post({ action:'update', tab:'Tasks', rowNum, row:this.taskToRow(task) });
-    if (result !== false) console.log('[Sheets] Task updated successfully');
-    return result !== false;
-  },
-
-  /* Blank out a deleted task row */
-  async deleteTask(taskId) {
-    const rowNum = await this.findTaskRow(taskId);
-    if (rowNum < 0) return false;
-    return await this._post({
-      action: 'update', tab:'Tasks', rowNum,
-      row: ['','','','','','','','','','','',''],
-    });
-  },
-
-  /* Append a comment to AuditLog */
-  async addComment(cm) {
-    return await this._post({ action:'append', tab:'AuditLog', row:this.commentToRow(cm) });
-  },
-
-  /* Update an existing comment's text */
-  async updateComment(cm) {
-    const rowNum = await this.findRow('AuditLog', cm.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'AuditLog', rowNum,
-      row:[cm.id, cm.taskId, cm.userId, cm.text, cm.createdAt] }));
-  },
-
-  /* Load all tasks from sheet on login */
+  /* ── Tasks ─────────────────────────────────────── */
   async loadTasks() {
-    const rows = await this._get('Tasks!A2:Q');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
-      .map(r => ({
-        id:              r[0]  || '',
-        title:           r[1]  || '',
-        clientId:        r[2]  || '',
-        type:            r[3]  || 'oneoff',
-        status:          r[4]  || 'pending',
-        priority:        r[5]  || 'medium',
-        assigneeId:      r[6]  || '',
-        dueDate:         r[7]  || '',
-        notes:           r[8]  || '',
-        createdAt:       r[9]  || '',
-        closedAt:        r[10] || null,
-        closeComment:    r[11] || '',
-        pipelineId:      r[12] || null,
-        pipelineStageId: r[13] || null,
-        subtasks:        _parseSt(r[14]),
-        blockedBy:       _parseSt(r[15]),
-        stageEnteredAt:  r[16] || null,
-      }));
+    const { data, error } = await this._q('tasks').select('*').order('created_at', {ascending:false});
+    if (error) { console.error('[DB] loadTasks:', error.message); return []; }
+    return (data||[]).map(_taskFromDb);
   },
+  async addTask(task)    { const {error} = await this._q('tasks').insert(_taskToDb(task)); if(error) console.error('[DB] addTask:', error.message); _updateSyncTime(); },
+  async updateTask(task) { const {error} = await this._q('tasks').upsert(_taskToDb(task)); if(error) console.error('[DB] updateTask:', error.message); _updateSyncTime(); },
+  async deleteTask(id)   { const {error} = await this._q('tasks').delete().eq('id',id); if(error) console.error('[DB] deleteTask:', error.message); _updateSyncTime(); },
 
-  /* Load activity events from AuditLog (ev* entries) */
-  async loadActivityLog() {
-    const rows = await this._get('AuditLog!A2:E');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].startsWith('ev'))
-      .map(r => ({ id:r[0]||'', taskId:r[1]||'', userId:r[2]||'', text:r[3]||'', createdAt:r[4]||'' }));
-  },
-
-  /* Load documents from Documents tab */
-  async loadDocuments() {
-    const rows = await this._get('Documents!A2:F');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '')
-      .map(r => ({ id:r[0]||'', clientId:r[1]||'', type:r[2]||'', number:r[3]||'', expiryDate:r[4]||'', notes:r[5]||'' }));
-  },
-
-  async addDocument(doc) {
-    return !!(await this._post({ action:'append', tab:'Documents',
-      row:[doc.id, doc.clientId, doc.type, doc.number, doc.expiryDate, doc.notes||''] }));
-  },
-
-  async updateDocument(doc) {
-    const rowNum = await this.findRow('Documents', doc.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Documents', rowNum,
-      row:[doc.id, doc.clientId, doc.type, doc.number, doc.expiryDate, doc.notes||''] }));
-  },
-
-  /* Reminders */
-  _remRow(rem) {
-    return [
-      rem.id, rem.title, rem.category, rem.amount||'', rem.clientId||'',
-      rem.eventDate, rem.remind1||'', rem.remind2||'', rem.remind3||'',
-      String(rem.notifyEmail !== false), String(rem.notifyTelegram !== false),
-      rem.notes||'', String(rem.active !== false), rem.paidAt||'',
-      rem.recurrence||'none',
-      rem.recurrenceConfig ? JSON.stringify(rem.recurrenceConfig) : '',
-      rem.paidDates?.length ? JSON.stringify(rem.paidDates) : '',
-      rem.assignedUserId||'',
-    ];
-  },
-  async loadReminders() {
-    const rows = await this._get('Reminders!A2:R');
-    if (!rows || !rows.length) return [];
-    return rows.filter(r => r[0]).map(r => ({
-      id:               r[0]  || '',
-      title:            r[1]  || '',
-      category:         r[2]  || 'Custom',
-      amount:           r[3]  || null,
-      clientId:         r[4]  || '',
-      eventDate:        r[5]  || '',
-      remind1:          r[6]  ? Number(r[6]) : null,
-      remind2:          r[7]  ? Number(r[7]) : null,
-      remind3:          r[8]  ? Number(r[8]) : null,
-      notifyEmail:      r[9]  !== 'false' && r[9]  !== false,
-      notifyTelegram:   r[10] !== 'false' && r[10] !== false,
-      notes:            r[11] || '',
-      active:           r[12] !== 'false' && r[12] !== false,
-      paidAt:           r[13] || '',
-      recurrence:       r[14] || 'none',
-      recurrenceConfig: _parseSt(r[15]),
-      paidDates:        _parseSt(r[16]),
-      assignedUserId:   r[17] || '',
-    }));
-  },
-  async addReminder(rem) {
-    return !!(await this._post({ action:'append', tab:'Reminders', row:this._remRow(rem) }));
-  },
-  async updateReminder(rem) {
-    const rowNum = await this.findRow('Reminders', rem.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Reminders', rowNum, row:this._remRow(rem) }));
-  },
-  async deleteReminder(id) {
-    const rowNum = await this.findRow('Reminders', id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Reminders', rowNum,
-      row:['','','','','','','','','','','','','','','','',''] }));
-  },
-
-  /* Client notes */
-  async loadClientNotes() {
-    const rows = await this._get('ClientNotes!A2:E');
-    if (!rows || !rows.length) return [];
-    return rows.filter(r => r[0]).map(r => ({
-      id:r[0]||'', clientId:r[1]||'', userId:r[2]||'', text:r[3]||'', createdAt:r[4]||''
-    }));
-  },
-  async addClientNote(note) {
-    return !!(await this._post({ action:'append', tab:'ClientNotes',
-      row:[note.id, note.clientId, note.userId, note.text, note.createdAt] }));
-  },
-  async deleteClientNote(id) {
-    const rowNum = await this.findRow('ClientNotes', id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'ClientNotes', rowNum,
-      row:['','','','',''] }));
-  },
-
-  /* Messages */
-  async loadMessages() {
-    const rows = await this._get('Messages!A2:E');
-    if (!rows || rows.length === 0) return [];
-    return rows.filter(r => r[0]).map(r => ({
-      id: r[0]||'', fromUserId: r[1]||'', channel: r[2]||'', text: r[3]||'', createdAt: r[4]||''
-    }));
-  },
-  async sendMessage(msg) {
-    return !!(await this._post({ action:'append', tab:'Messages',
-      row:[msg.id, msg.fromUserId, msg.channel, msg.text, msg.createdAt] }));
-  },
-
-  async deleteDocument(docId) {
-    const rowNum = await this.findRow('Documents', docId);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Documents', rowNum,
-      row:['','','','','',''] }));
-  },
-
-  /* Load all comments from AuditLog on login */
+  /* ── Comments / Audit ──────────────────────────── */
   async loadComments() {
-    const rows = await this._get('AuditLog!A2:E');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].startsWith('cm'))
-      .map(r => ({
-        id:        r[0] || '',
-        taskId:    r[1] || '',
-        userId:    r[2] || '',
-        text:      r[3] || '',
-        createdAt: r[4] || '',
-      }));
+    const { data, error } = await this._q('audit_log').select('*').like('id','cm%');
+    if (error) return [];
+    return (data||[]).map(_commentFromDb);
   },
+  async addComment(cm)       { await this._q('audit_log').insert(_commentToDb(cm)); },
+  async updateComment(cm)    { await this._q('audit_log').upsert(_commentToDb(cm)); },
+  async loadActivityLog()    { const {data} = await this._q('audit_log').select('*').like('id','ev%'); return (data||[]).map(_commentFromDb); },
 
-  /* Load all clients from Clients tab on login */
+  /* ── Clients ────────────────────────────────────── */
   async loadClients() {
-    const rows = await this._get('Clients!A2:Y');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '' && r[1] !== '__deleted__')
-      .map(r => ({
-        id:                   r[0]  || '',
-        name:                 r[1]  || '',
-        short:                r[2]  || '',
-        color:                r[3]  || '#4f8ef7',
-        bg:                   r[4]  || 'rgba(79,142,247,0.12)',
-        active:               r[5]  !== 'false',
-        tradeLicense:         r[6]  || '',
-        trn:                  r[7]  || '',
-        corporateTaxNo:       r[8]  || '',   /* col I — was vatNumber */
-        incorporationDate:    r[9]  || '',
-        contactName:          r[10] || '',
-        contactPhone:         r[11] || '',
-        contactEmail:         r[12] || '',
-        contactWhatsapp:      r[13] || '',
-        classification:       r[14] || 'Mainland',
-        vatRegistered:        r[15] === 'true',
-        wpsRequired:          r[16] === 'true',
-        payrollManaged:       r[17] === 'true',
-        assignedAccountantId: r[18] || '',
-        clientSince:          r[19] || '',
-        sortOrder:            r[20] ? Number(r[20]) : 999,
-        vatStartDate:         r[21] || '',   /* col V — YYYY-MM-DD of first VAT registration */
-        ctAnniversaryDate:    r[22] || '',   /* col W — YYYY-MM-DD of CT year-end */
-        tags:                 r[23] ? r[23].split(',').map(t=>t.trim()).filter(Boolean) : [],
-      }));
+    const { data, error } = await this._q('clients').select('*').order('sort_order');
+    if (error) return [];
+    return (data||[]).map(_clientFromDb);
   },
+  async addClient(c)    { await this._q('clients').insert(_clientToDb(c)); },
+  async updateClient(c) { await this._q('clients').upsert(_clientToDb(c)); _updateSyncTime(); },
+  async deleteClient(id){ await this._q('clients').delete().eq('id',id); _updateSyncTime(); },
 
-  /* Load all users with passwords from Users tab */
+  /* ── Users ──────────────────────────────────────── */
   async loadUsers() {
-    const rows = await this._get('Users!A2:H');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '')
-      .map(r => ({
-        id:             r[0] || '',
-        name:           r[1] || '',
-        email:          r[2] || '',
-        role:           r[3] || 'viewer',
-        initials:       r[4] || '??',
-        avClass:        r[5] || 'av-viewer',
-        password:       r[6] || '',
-        telegramChatId: r[7] || '',
-      }));
+    const { data, error } = await this._q('users').select('*');
+    if (error) return [];
+    return (data||[]).map(_userFromDb);
   },
+  async addUser(u)    { await this._q('users').insert(_userToDb(u)); },
+  async updateUser(u) { await this._q('users').upsert(_userToDb(u)); },
+  async deleteUser(id){ await this._q('users').delete().eq('id',id); },
 
-  /* Saved filter views */
-  async loadSavedViews() {
-    const rows = await this._get('SavedViews!A2:D');
-    if (!rows || rows.length === 0) return [];
-    return rows.filter(r => r[0]).map(r => ({
-      id: r[0]||'', name: r[1]||'', userId: r[2]||'', filters: _parseSt(r[3]),
-    }));
-  },
-  async addSavedView(v) {
-    return !!(await this._post({ action:'append', tab:'SavedViews',
-      row:[v.id, v.name, v.userId, JSON.stringify(v.filters)] }));
-  },
-  async deleteSavedView(id) {
-    const rowNum = await this.findRow('SavedViews', id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'SavedViews', rowNum, row:['','','',''] }));
-  },
-
-  /* Time logs */
-  async loadTimeLogs() {
-    const rows = await this._get('TimeLog!A2:G');
-    if (!rows || rows.length === 0) return [];
-    return rows.filter(r => r[0]).map(r => ({
-      id: r[0]||'', taskId: r[1]||'', userId: r[2]||'',
-      hours: Number(r[3])||0, description: r[4]||'',
-      date: r[5]||'', billable: r[6] !== 'false',
-    }));
-  },
-  async addTimeLog(log) {
-    return !!(await this._post({ action:'append', tab:'TimeLog',
-      row:[log.id, log.taskId, log.userId, log.hours, log.description||'', log.date, String(log.billable)] }));
-  },
-  async deleteTimeLog(logId) {
-    const rowNum = await this.findRow('TimeLog', logId);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'TimeLog', rowNum,
-      row:['','','','','','',''] }));
-  },
-
-  /* Load templates from Templates tab */
-  async loadTemplates() {
-    const rows = await this._get('Templates!A2:P');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '')
-      .map(r => ({
-        id:                   r[0]  || '',
-        title:                r[1]  || '',
-        clientId:             r[2]  || '',
-        recurrence:           r[3]  || 'monthly',
-        dayOfMonth:           r[4]  ? Number(r[4]) : null,
-        dayOfWeek:            r[5]  || null,
-        assigneeId:           r[6]  || '',
-        active:               r[7]  !== 'false',
-        priority:             r[8]  || 'medium',
-        notes:                r[9]  || '',
-        subtasks:             _parseSt(r[10]),
-        pipelineId:           r[11] || '',
-        pipelineStageId:      r[12] || '',
-        estimatedHours:       r[13] ? Number(r[13]) : 0,
-        defaultComments:      _parseSt(r[14]),
-        templateDependencies: _parseSt(r[15]),
-      }));
-  },
-
-  _templateRow(t) {
-    return [
-      t.id, t.title, t.clientId, t.recurrence,
-      t.dayOfMonth || '', t.dayOfWeek || '', t.assigneeId, String(t.active),
-      t.priority || 'medium', t.notes || '',
-      (t.subtasks?.length)             ? JSON.stringify(t.subtasks)             : '',
-      t.pipelineId || '', t.pipelineStageId || '',
-      t.estimatedHours || '',
-      (t.defaultComments?.length)      ? JSON.stringify(t.defaultComments)      : '',
-      (t.templateDependencies?.length) ? JSON.stringify(t.templateDependencies) : '',
-    ];
-  },
-
-  async addTemplate(template) {
-    return !!(await this._post({ action:'append', tab:'Templates', row:this._templateRow(template) }));
-  },
-
-  async updateTemplate(template) {
-    const rowNum = await this.findRow('Templates', template.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Templates', rowNum, row:this._templateRow(template) }));
-  },
-
-  async deleteTemplate(templateId) {
-    const rowNum = await this.findRow('Templates', templateId);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Templates', rowNum,
-      row:['','','','','','','','','','','','','','','',''] }));
-  },
-
-  /* Load pipelines from Pipelines tab */
+  /* ── Pipelines + Stages ─────────────────────────── */
   async loadPipelines() {
-    const rows = await this._get('Pipelines!A2:D');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '')
-      .map(r => ({
-        id:     r[0] || '',
-        name:   r[1] || '',
-        desc:   r[2] || '',
-        active: r[3] !== 'false',
-      }));
+    const { data } = await this._q('pipelines').select('*').eq('active',true);
+    return (data||[]).map(_pipeFromDb);
   },
-
-  /* Load stages from PipelineStages tab */
   async loadStages() {
-    const rows = await this._get('PipelineStages!A2:F');
-    if (!rows || rows.length === 0) return [];
-    return rows
-      .filter(r => r[0] && r[0].trim() !== '')
-      .map(r => ({
-        id:         r[0] || '',
-        pipelineId: r[1] || '',
-        order:      Number(r[2]) || 0,
-        name:       r[3] || '',
-        color:      r[4] || '',
-        targetDays: r[5] ? Number(r[5]) : 0,
-      }));
+    const { data } = await this._q('pipeline_stages').select('*').order('order');
+    return (data||[]).map(_stageFromDb);
   },
+  async addStage(s)    { await this._q('pipeline_stages').insert(_stageToDb(s)); },
+  async updateStage(s) { await this._q('pipeline_stages').upsert(_stageToDb(s)); },
+  async deleteStage(id){ await this._q('pipeline_stages').delete().eq('id',id); },
+  async deletePipeline(id) {
+    await this._q('pipeline_stages').delete().eq('pipeline_id',id);
+    await this._q('pipelines').delete().eq('id',id);
+  },
+  async addPipelineRow(p) { await this._q('pipelines').insert({id:p.id,name:p.name,description:p.desc||'',active:true}); },
+  async updatePipelineRow(p) { await this._q('pipelines').upsert({id:p.id,name:p.name,description:p.desc||'',active:p.active}); },
 
-  /* Update a stage row */
-  async updateStage(stage) {
-    const rowNum = await this.findRow('PipelineStages', stage.id);
-    if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'PipelineStages', rowNum,
-      row:[stage.id, stage.pipelineId, stage.order, stage.name, stage.color||'', stage.targetDays||''] }));
+  /* ── Templates ──────────────────────────────────── */
+  async loadTemplates() {
+    const { data } = await this._q('templates').select('*');
+    return (data||[]).map(_tplFromDb);
+  },
+  async addTemplate(t)    { await this._q('templates').insert(_tplToDb(t)); },
+  async updateTemplate(t) { await this._q('templates').upsert(_tplToDb(t)); },
+  async deleteTemplate(id){ await this._q('templates').delete().eq('id',id); },
+
+  /* ── Documents ──────────────────────────────────── */
+  async loadDocuments() {
+    const { data } = await this._q('documents').select('*');
+    return (data||[]).map(_docFromDb);
+  },
+  async addDocument(d)    { await this._q('documents').insert({id:d.id,client_id:d.clientId,type:d.type,number:d.number||'',expiry_date:d.expiryDate,notes:d.notes||''}); },
+  async updateDocument(d) { await this._q('documents').upsert({id:d.id,client_id:d.clientId,type:d.type,number:d.number||'',expiry_date:d.expiryDate,notes:d.notes||''}); },
+  async deleteDocument(id){ await this._q('documents').delete().eq('id',id); },
+
+  /* ── Saved views ────────────────────────────────── */
+  async loadSavedViews() {
+    const { data } = await this._q('saved_views').select('*');
+    return (data||[]).map(_svFromDb);
+  },
+  async addSavedView(v)    { await this._q('saved_views').insert({id:v.id,name:v.name,user_id:v.userId,filters:v.filters}); },
+  async deleteSavedView(id){ await this._q('saved_views').delete().eq('id',id); },
+
+  /* ── Time logs ──────────────────────────────────── */
+  async loadTimeLogs() {
+    const { data } = await this._q('time_log').select('*').order('date',{ascending:false});
+    return (data||[]).map(_tlFromDb);
+  },
+  async addTimeLog(l)    { await this._q('time_log').insert({id:l.id,task_id:l.taskId,user_id:l.userId,hours:l.hours,description:l.description||'',date:l.date,billable:l.billable!==false}); },
+  async deleteTimeLog(id){ await this._q('time_log').delete().eq('id',id); },
+
+  /* ── Messages ───────────────────────────────────── */
+  async loadMessages() {
+    const { data } = await this._q('messages').select('*').order('created_at',{ascending:false}).limit(200);
+    return (data||[]).map(_msgFromDb);
+  },
+  async sendMessage(m) { await this._q('messages').insert({id:m.id,from_user_id:m.fromUserId,channel:m.channel,text:m.text,created_at:m.createdAt}); },
+
+  /* ── Client notes ───────────────────────────────── */
+  async loadClientNotes() {
+    const { data } = await this._q('client_notes').select('*').order('created_at',{ascending:false});
+    return (data||[]).map(_cnoteFromDb);
+  },
+  async addClientNote(n)    { await this._q('client_notes').insert({id:n.id,client_id:n.clientId,user_id:n.userId,text:n.text,created_at:n.createdAt}); },
+  async deleteClientNote(id){ await this._q('client_notes').delete().eq('id',id); },
+
+  /* ── Reminders ──────────────────────────────────── */
+  async loadReminders() {
+    const { data } = await this._q('reminders').select('*').order('event_date');
+    return (data||[]).map(_remFromDb);
+  },
+  async addReminder(r)    { const {error} = await this._q('reminders').insert(_remToDb(r)); if(error) console.error('[DB] addReminder:',error.message); },
+  async updateReminder(r) { await this._q('reminders').upsert(_remToDb(r)); },
+  async deleteReminder(id){ await this._q('reminders').delete().eq('id',id); },
+
+  /* ── Real-time subscriptions ────────────────────── */
+  subscribeRealtime() {
+    if (!this._sb) return;
+    this._sb.channel('db-live')
+      .on('postgres_changes', {event:'*', schema:'public', table:'tasks'},
+        () => { if (State.user) State.loadFromDb().then(() => refreshCurrentPage()); })
+      .on('postgres_changes', {event:'INSERT', schema:'public', table:'messages'},
+        payload => {
+          const msg = _msgFromDb(payload.new);
+          if (!State.messages.find(m => m.id === msg.id)) {
+            State.messages.push(msg);
+            if (typeof renderChatMessages === 'function') renderChatMessages(_chatChannel||'team');
+            if (typeof updateChatBadge  === 'function') updateChatBadge();
+          }
+        })
+      .subscribe();
   },
 };
 
@@ -693,11 +317,12 @@ const State = {
     return this.tasks.filter(t => t.status !== 'done' && t.dueDate === today);
   },
 
-  /* ── Load live data from Sheet after login ───────────── */
+  /* ── Load all data from Supabase after login ────────── */
+  async loadFromDb()     { return this.loadFromSheets(); }, /* alias */
   async loadFromSheets() {
     if (!this.useSheets) return;
     try {
-      console.log('[State] Loading from Google Sheets...');
+      console.log('[State] Loading from Supabase...');
       const [sheetTasks, sheetComments, sheetClients, sheetUsers,
              sheetPipelines, sheetStages, sheetTemplates,
              sheetActivity, sheetDocs, sheetViews, sheetTimeLogs,

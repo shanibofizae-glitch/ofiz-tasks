@@ -189,6 +189,7 @@ async function loginAs(userId) {
   setTimeout(updateChatBadge, 500);
   _startClock();
   _startAutoSync();
+  Sheets.subscribeRealtime(); /* live updates via Supabase real-time */
   const si = document.getElementById('sync-indicator');
   if (si) si.style.display = '';
 }
@@ -337,6 +338,8 @@ if ('serviceWorker' in navigator) {
 
 /* ── Init ───────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
+  /* Initialise Supabase client */
+  Sheets.init();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';
   renderUserSelectList();
