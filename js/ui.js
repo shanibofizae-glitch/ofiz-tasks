@@ -477,6 +477,21 @@ function setFilter(key, val, el) {
 let _dragClientId    = null;
 let _activeClientTag = null;
 let _showArchived    = false;
+let _clientSort      = 'manual'; /* 'manual' | 'az' | 'tasks' */
+
+function setClientSort(sort) {
+  _clientSort = sort;
+  /* Update button states */
+  ['manual','az','tasks'].forEach(s => {
+    const btn = document.getElementById(`csort-${s}`);
+    if (!btn) return;
+    const on = s === sort;
+    btn.style.background  = on ? 'var(--ink)' : '';
+    btn.style.color       = on ? 'var(--bg-sidebar)' : '';
+    btn.style.borderColor = on ? 'var(--ink)' : '';
+  });
+  renderClients();
+}
 
 function toggleShowArchived() {
   _showArchived = !_showArchived;
@@ -530,8 +545,18 @@ function renderClients() {
     .filter(c => {
       const client = State.getClient(c.id);
       return _showArchived ? client?.active === false : client?.active !== false;
-    })
-    .sort((a,b) => (State.getClient(a.id)?.sortOrder ?? 999) - (State.getClient(b.id)?.sortOrder ?? 999));
+    });
+
+  /* Apply sort */
+  if (_clientSort === 'az') {
+    health.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (_clientSort === 'tasks') {
+    health.sort((a, b) => b.total - a.total);
+  } else {
+    /* manual — sort by drag-drop sortOrder */
+    health.sort((a,b) => (State.getClient(a.id)?.sortOrder ?? 999) - (State.getClient(b.id)?.sortOrder ?? 999));
+  }
+
   if (_activeClientTag) {
     health = health.filter(c => (State.getClient(c.id)?.tags||[]).includes(_activeClientTag));
   }
@@ -3705,13 +3730,39 @@ function _renderClientProfileEdit(clientId) {
   const el = document.getElementById('cp-body');
   el.innerHTML = `
   <div style="padding:20px 22px">
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Client name</label>
-        <input type="text" id="cpe-name" class="form-input" value="${esc(c.name||'')}"></div>
-      <div class="form-group"><label class="form-label">Short code</label>
-        <input type="text" id="cpe-short" class="form-input" value="${esc(c.short||'')}" maxlength="5" style="font-family:var(--mono);text-transform:uppercase"></div>
+
+    <div class="section-title" style="margin-bottom:12px">Basic info</div>
+    <div class="form-group">
+      <label class="form-label">Client full name</label>
+      <input type="text" id="cpe-name" class="form-input" value="${esc(c.name||'')}">
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Short code</label>
+        <input type="text" id="cpe-short" class="form-input" value="${esc(c.short||'')}" maxlength="5"
+          style="font-family:var(--mono);text-transform:uppercase">
+        <div style="font-size:10.5px;color:var(--ink-3);margin-top:3px">2-5 letters shown on task tags</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Accent colour</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="color" id="cpe-color" value="${c.color||'#4f8ef7'}"
+            oninput="document.getElementById('cpe-color-preview').style.background=this.value"
+            style="width:44px;height:36px;border:1px solid var(--border-md);border-radius:var(--radius-sm);
+              padding:2px;cursor:pointer;background:var(--bg)">
+          <div>
+            <div style="font-size:12px;color:var(--ink-2)">Used for tags and card accent</div>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
+              <div id="cpe-color-preview" style="width:20px;height:20px;border-radius:4px;background:${c.color}"></div>
+              <span style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">${c.color}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="divider"></div>
+    <div class="section-title" style="margin-bottom:12px">Business details</div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Trade License</label>
         <input type="text" id="cpe-tl" class="form-input" value="${esc(c.tradeLicense||'')}"></div>
@@ -3736,6 +3787,7 @@ function _renderClientProfileEdit(clientId) {
         <input type="date" id="cpe-since" class="form-input" value="${c.clientSince||''}"></div>
     </div>
     <div class="divider"></div>
+    <div class="section-title" style="margin-bottom:12px">Contact</div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Contact person</label>
         <input type="text" id="cpe-cname" class="form-input" value="${esc(c.contactName||'')}"></div>
@@ -3757,6 +3809,7 @@ function _renderClientProfileEdit(clientId) {
       </div>
     </div>
     <div class="divider"></div>
+    <div class="section-title" style="margin-bottom:12px">Services &amp; tax filing</div>
     <div class="form-group">
       <label class="form-label">Services</label>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
@@ -3797,9 +3850,12 @@ function _renderClientProfileEdit(clientId) {
 
 async function saveClientProfile(clientId) {
   const tagsRaw = document.getElementById('cpe-tags')?.value || '';
+  const newColor = document.getElementById('cpe-color')?.value || State.getClient(clientId)?.color;
   const patch = {
     name:                 document.getElementById('cpe-name')?.value.trim() || State.getClient(clientId)?.name,
     short:                (document.getElementById('cpe-short')?.value.trim() || State.getClient(clientId)?.short).toUpperCase(),
+    color:                newColor,
+    bg:                   hexToRgba(newColor, 0.12),
     tradeLicense:         document.getElementById('cpe-tl').value.trim(),
     trn:                  document.getElementById('cpe-trn').value.trim(),
     corporateTaxNo:       document.getElementById('cpe-vat').value.trim(),

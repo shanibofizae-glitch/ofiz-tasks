@@ -335,7 +335,24 @@
       <div id="page-clients" class="page">
         <div class="section-head" style="margin-bottom:12px">
           <span class="section-title">Client overview</span>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <!-- Sort buttons -->
+            <div style="display:flex;gap:3px">
+              <button id="csort-manual" class="btn btn-ghost btn-sm"
+                onclick="setClientSort('manual')"
+                style="background:var(--ink);color:var(--bg-sidebar);border-color:var(--ink)"
+                title="Manual order (drag to reorder)">
+                <i class="ti ti-drag-drop" style="font-size:12px"></i>
+              </button>
+              <button id="csort-az" class="btn btn-ghost btn-sm"
+                onclick="setClientSort('az')" title="Sort A to Z">
+                <i class="ti ti-sort-a-z" style="font-size:12px"></i>
+              </button>
+              <button id="csort-tasks" class="btn btn-ghost btn-sm"
+                onclick="setClientSort('tasks')" title="Sort by most tasks">
+                <i class="ti ti-list-numbers" style="font-size:12px"></i>
+              </button>
+            </div>
             <button class="btn btn-ghost btn-sm" id="archived-toggle-btn" onclick="toggleShowArchived()"
               style="display:none">
               <i class="ti ti-archive"></i> <span id="archived-toggle-label">Show archived</span>
