@@ -358,23 +358,123 @@ function _renderTasksGrouped(tasks) {
 
   const orderedClients = State.clients.filter(c => grouped[c.id]);
 
+  const today    = new Date().toISOString().slice(0,10);
+  const canClose = State.user?.role !== 'viewer';
+
   el.innerHTML = orderedClients.map(c => {
     const clientTasks = grouped[c.id];
     return `
-      <div style="margin-bottom:22px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;
-          padding-bottom:8px;border-bottom:2px solid ${c.color}22">
-          <span style="width:9px;height:9px;border-radius:50%;background:${c.color};flex-shrink:0"></span>
-          <span style="font-size:11px;font-weight:600;color:var(--ink-2);
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;
+          padding-bottom:6px;border-bottom:2px solid ${c.color}33">
+          <span style="width:8px;height:8px;border-radius:50%;background:${c.color};flex-shrink:0"></span>
+          <span style="font-size:11px;font-weight:700;color:var(--ink-2);
             text-transform:uppercase;letter-spacing:0.7px">${c.name}</span>
           <span style="font-size:10px;font-family:var(--mono);color:var(--ink-4);
             background:var(--bg);border:1px solid var(--border);
             border-radius:20px;padding:0 6px">${clientTasks.length}</span>
         </div>
-        <div class="task-list">${clientTasks.map(renderTaskCard).join('')}</div>
+        ${_TABLE_HEAD}
+          ${clientTasks.map(t => _renderTaskRow(t, today, canClose)).join('')}
+        </tbody></table></div>
       </div>`;
   }).join('');
 }
+
+function _ttStatusBadge(task, today) {
+  const done = task.status === 'done';
+  const over = !done && task.dueDate < today;
+  if (done) return `<span class="tt-status-badge" style="background:var(--green-light);color:var(--green)"><i class="ti ti-check" style="font-size:10px"></i> Done</span>`;
+  if (over) return `<span class="tt-status-badge" style="background:var(--red-light);color:var(--red)"><i class="ti ti-alert-triangle" style="font-size:10px"></i> Overdue</span>`;
+  if (task.status === 'progress') return `<span class="tt-status-badge" style="background:var(--blue-light);color:var(--blue)"><i class="ti ti-loader" style="font-size:10px"></i> In progress</span>`;
+  return `<span class="tt-status-badge" style="background:var(--bg-active);color:var(--ink-3)"><i class="ti ti-circle" style="font-size:10px"></i> Pending</span>`;
+}
+
+function _ttProgressCell(task) {
+  const subs  = task.subtasks || [];
+  const total = subs.length;
+  if (!total) return `<span style="color:var(--ink-4);font-size:12px">—</span>`;
+  const done = subs.filter(s => s.done).length;
+  const pct  = Math.round(done / total * 100);
+  const color = pct === 100 ? 'var(--accent)' : pct > 50 ? 'var(--blue)' : 'var(--amber)';
+  return `<div class="tt-progress-wrap">
+    <div class="tt-progress-bar"><div class="tt-progress-fill" style="width:${pct}%;background:${color}"></div></div>
+    <span>${done}/${total}</span>
+  </div>`;
+}
+
+function _renderTaskRow(task, today, canClose) {
+  const done   = task.status === 'done';
+  const over   = !done && task.dueDate && task.dueDate < today;
+  const client = State.getClient(task.clientId);
+  const user   = State.getUser(task.assigneeId);
+  const subs   = task.subtasks || [];
+  const isBlocked = State.isBlocked(task.id);
+  const priCls = task.priority === 'high' ? 'pri-high' : task.priority === 'low' ? 'pri-low' : 'pri-medium';
+  const selCls = selectMode && selectedTasks.has(task.id) ? 'task-selected' : '';
+
+  return `
+  <tr class="task-row ${done?'done-row':''} ${priCls} ${selCls}"
+      data-id="${task.id}"
+      onclick="${selectMode ? `toggleTaskSelect('${task.id}')` : `openTaskModal('${task.id}')`}">
+    <td>
+      ${selectMode
+        ? `<div class="tc-select-box ${selectedTasks.has(task.id)?'checked':''}"
+             onclick="event.stopPropagation();toggleTaskSelect('${task.id}')">
+             <i class="ti ti-check" style="font-size:9px"></i></div>`
+        : `<div class="task-check ${done?'checked':''}"
+             onclick="event.stopPropagation();${done?'':canClose?`quickClose('${task.id}')`:''}"
+             style="width:15px;height:15px;font-size:8px">
+             ${done?'<i class="ti ti-check" style="font-size:8px"></i>':''}
+           </div>`}
+    </td>
+    <td class="tt-title">
+      ${esc(task.title)}
+      ${isBlocked ? `<i class="ti ti-lock" style="font-size:10px;color:var(--ink-4);margin-left:5px"></i>` : ''}
+      ${subs.length ? `<span style="font-size:10px;color:var(--ink-4);font-family:var(--mono);margin-left:5px">✓${subs.filter(s=>s.done).length}/${subs.length}</span>` : ''}
+    </td>
+    <td style="white-space:nowrap">
+      ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : '—'}
+    </td>
+    <td style="font-family:var(--mono);font-size:12px;color:${over?'var(--red)':'var(--ink-3)'};white-space:nowrap">
+      ${task.dueDate ? fmtDate(task.dueDate) : '—'}
+    </td>
+    <td>${_ttStatusBadge(task, today)}</td>
+    <td>
+      <span style="font-size:12px;font-weight:700;color:${task.priority==='high'?'var(--red)':task.priority==='low'?'var(--ink-4)':'var(--amber)'}">
+        ${task.priority==='high'?'↑ High':task.priority==='low'?'↓ Low':'→ Med'}
+      </span>
+    </td>
+    <td>${_ttProgressCell(task)}</td>
+    <td>
+      ${user ? `<div class="assign-chip ${user.avClass}" title="${user.name}"
+        style="width:24px;height:24px;font-size:8.5px">${user.initials}</div>` : '—'}
+    </td>
+    <td onclick="event.stopPropagation()">
+      <div class="tt-row-actions">
+        ${!done && canClose ? `<button class="btn btn-success btn-sm" style="padding:2px 7px;font-size:10px"
+          onclick="openTaskModal('${task.id}','close')">Close</button>` : ''}
+        ${State.user?.role==='admin' ? `<button class="btn btn-ghost btn-sm" style="padding:2px 6px"
+          onclick="openEditModal('${task.id}')"><i class="ti ti-edit" style="font-size:11px"></i></button>` : ''}
+      </div>
+    </td>
+  </tr>`;
+}
+
+const _TABLE_HEAD = `
+<div class="task-table-wrap">
+<table class="task-table">
+<thead><tr class="task-table-head">
+  <th></th>
+  <th>Task</th>
+  <th>Client</th>
+  <th>Due date</th>
+  <th>Status</th>
+  <th>Priority</th>
+  <th>Progress</th>
+  <th>Assignee</th>
+  <th></th>
+</tr></thead><tbody>`;
 
 function _renderTasksByDate(tasks) {
   const el = document.getElementById('all-task-list');
@@ -384,58 +484,49 @@ function _renderTasksByDate(tasks) {
     return;
   }
 
-  const today = new Date().toISOString().slice(0,10);
-
-  /* Split into overdue, today, upcoming, done, no-date */
+  const today    = new Date().toISOString().slice(0,10);
+  const canClose = State.user?.role !== 'viewer';
   const overdue  = tasks.filter(t => t.status !== 'done' && t.dueDate && t.dueDate < today);
   const rest     = tasks.filter(t => !(t.status !== 'done' && t.dueDate && t.dueDate < today));
 
-  /* Group rest by due date */
   const byDate = {};
-  rest.forEach(t => {
-    const key = t.dueDate || '__none__';
-    (byDate[key] = byDate[key] || []).push(t);
-  });
-  const sortedDates = Object.keys(byDate).sort((a,b) => {
-    if (a === '__none__') return 1;
-    if (b === '__none__') return -1;
-    return a.localeCompare(b);
-  });
+  rest.forEach(t => { const k = t.dueDate||'__none__'; (byDate[k]=byDate[k]||[]).push(t); });
+  const sortedDates = Object.keys(byDate).sort((a,b)=>{ if(a==='__none__')return 1; if(b==='__none__')return -1; return a.localeCompare(b); });
 
-  let html = '';
+  let html = _TABLE_HEAD;
 
-  /* Overdue section */
   if (overdue.length) {
-    html += `
-    <div class="date-group-head overdue-head">
-      <i class="ti ti-alert-triangle" style="font-size:12px"></i>
-      Overdue
-      <span class="date-group-count">${overdue.length}</span>
-    </div>
-    <div class="date-group-section">
-      ${overdue.map(renderTaskCard).join('')}
-    </div>`;
+    html += `<tr class="task-group-row overdue-group"><td colspan="9">
+      <i class="ti ti-alert-triangle" style="font-size:11px;margin-right:6px"></i>
+      Overdue <span style="opacity:0.6;font-weight:400;margin-left:4px">${overdue.length} task${overdue.length!==1?'s':''}</span>
+    </td></tr>`;
+    html += overdue.map(t => _renderTaskRow(t, today, canClose)).join('');
   }
 
-  /* Date sections */
   sortedDates.forEach(date => {
-    const isToday  = date === today;
-    const isNone   = date === '__none__';
-    const label    = isNone   ? 'No due date'
-                   : isToday  ? `Today &mdash; ${fmtDate(date)}`
-                   : fmtDate(date);
-    const cls      = isToday  ? 'today-head' : '';
-    const icon     = isToday  ? 'ti-calendar-event' : 'ti-calendar';
-    html += `
-    <div class="date-group-head ${cls}">
-      <i class="ti ${icon}" style="font-size:12px"></i>
-      ${label}
-      <span class="date-group-count">${byDate[date].length}</span>
-    </div>
-    <div class="date-group-section">
-      ${byDate[date].map(renderTaskCard).join('')}
-    </div>`;
+    const isToday = date === today;
+    const isNone  = date === '__none__';
+    const label   = isNone ? 'No due date' : isToday ? `Today — ${fmtDate(date)}` : fmtDate(date);
+    const grpCls  = isToday ? 'today-group' : 'normal-group';
+    const icon    = isToday ? 'ti-calendar-event' : 'ti-calendar';
+    html += `<tr class="task-group-row ${grpCls}"><td colspan="9">
+      <i class="ti ${icon}" style="font-size:11px;margin-right:6px"></i>
+      ${label} <span style="opacity:0.6;font-weight:400;margin-left:4px">${byDate[date].length}</span>
+    </td></tr>`;
+    html += byDate[date].map(t => _renderTaskRow(t, today, canClose)).join('');
   });
+
+  html += `</tbody></table></div>`;
+
+  /* Add task row at bottom */
+  if (State.user?.role === 'admin') {
+    html += `<div style="margin-top:4px">
+      <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;border-style:dashed;color:var(--ink-3)"
+        onclick="openNewTaskModal()">
+        <i class="ti ti-plus"></i> Add new task
+      </button>
+    </div>`;
+  }
 
   el.innerHTML = html;
 }
