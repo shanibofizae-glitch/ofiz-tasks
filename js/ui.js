@@ -102,7 +102,7 @@ function renderTaskCard(task) {
         ${done ? '<i class="ti ti-check" style="font-size:9px"></i>' : ''}
       </div>
       <div class="task-title">${esc(task.title)}</div>
-      ${assigneeChip(task.assigneeId)}
+      <div style="flex-shrink:0">${assigneeChip(task.assigneeId)}</div>
     </div>
 
     ${hasNotes ? `<div class="tc-note">${esc(task.notes)}</div>` : ''}
@@ -124,9 +124,9 @@ function renderTaskCard(task) {
           ${fmtDate(task.dueDate)}
         </span>
         ${!done && canClose
-          ? `<button class="btn btn-success btn-sm" style="padding:3px 8px;font-size:11px"
+          ? `<button class="btn btn-success btn-sm" style="padding:2px 7px;font-size:10.5px;gap:3px"
                onclick="event.stopPropagation();openTaskModal('${task.id}','close')">
-               <i class="ti ti-circle-check" style="font-size:11px"></i> Close
+               <i class="ti ti-circle-check" style="font-size:10px"></i> Close
              </button>`
           : ''}
       </div>

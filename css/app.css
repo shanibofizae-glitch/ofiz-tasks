@@ -422,13 +422,14 @@ img { display: block; max-width: 100%; }
 .tag {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   font-size: 10px;
   font-weight: 500;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: var(--radius-xs);
   white-space: nowrap;
-  letter-spacing: 0.1px;
+  letter-spacing: 0;
+  flex-shrink: 0;
 }
 .tag-daily   { background: var(--purple-light); color: var(--purple); }
 .tag-weekly  { background: var(--blue-light);   color: var(--blue); }
@@ -466,44 +467,38 @@ img { display: block; max-width: 100%; }
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  padding: 9px 12px;
   cursor: pointer;
   transition: border-color var(--dur), box-shadow var(--dur);
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 .task-card:hover {
   border-color: var(--border-md);
-  box-shadow: 0 1px 6px rgba(15,14,12,0.07);
+  box-shadow: 0 1px 5px rgba(15,14,12,0.07);
 }
 .task-card.overdue {
   border-left: 2px solid var(--red);
   padding-left: 11px;
 }
-.task-card.done {
-  background: var(--bg);
-  opacity: 0.55;
-}
+.task-card.done { background: var(--bg); opacity: 0.55; }
 .task-card.done:hover { opacity: 0.7; }
 
-/* Cards always half width — 2 per line */
-
-/* Top row: check + title + assignee */
+/* Row 1: checkbox · title · assignee avatar */
 .tc-top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
 .task-check {
-  width: 16px; height: 16px;
+  width: 15px; height: 15px;
   border-radius: 50%;
   border: 1.5px solid var(--border-hi);
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 9px;
+  font-size: 8px;
   transition: all var(--dur);
   cursor: pointer;
 }
@@ -517,36 +512,34 @@ img { display: block; max-width: 100%; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: -0.1px;
-  flex: 1; min-width: 0;
+  flex: 1;
+  min-width: 0;
 }
 .task-card.done .task-title { text-decoration: line-through; color: var(--ink-3); }
 
-/* Notes — hidden on cards to keep compact */
+/* Notes hidden on card view */
 .tc-note { display: none; }
 
-/* Bottom row: tags + date + close — all on one line */
+/* Row 2: tags · date · close */
 .tc-bottom {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 7px;
-  margin-left: 24px;
-  flex-wrap: nowrap;
-  overflow: hidden;
+  gap: 4px;
+  margin-top: 6px;
+  margin-left: 22px;
+  min-width: 0;
 }
 .tc-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
   margin-left: auto;
 }
-
 .task-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
@@ -556,6 +549,7 @@ img { display: block; max-width: 100%; }
   color: var(--ink-3);
   font-family: var(--mono);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .task-due.late { color: var(--red); }
 .assign-chip {
