@@ -7,43 +7,51 @@
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── New vibrant palette ── */
-  --bg:           #f1f5f9;
-  --bg-sidebar:   #0f172a;
+  /* ═══ RETRO CALM PALETTE ═══════════════════════════════
+     🩵 Tiffany Blue  #81D8D0
+     🫚 Terracotta    #D99E82
+     🌿 Olive         #D7D982
+     💜 Lavender      #AE82D9
+     ═══════════════════════════════════════════════════════ */
+  --bg:           #f4faf9;
+  --bg-sidebar:   #1b2b2a;
   --bg-card:      #ffffff;
-  --bg-hover:     #f8fafc;
-  --bg-active:    #f1f5f9;
+  --bg-hover:     #ecf6f5;
+  --bg-active:    #e2f1ef;
 
-  --border:       #e2e8f0;
-  --border-md:    #cbd5e1;
-  --border-hi:    #94a3b8;
+  --border:       #cce8e6;
+  --border-md:    #a8d8d5;
+  --border-hi:    #81D8D0;
 
-  --ink:          #0f172a;
-  --ink-2:        #475569;
-  --ink-3:        #94a3b8;
-  --ink-4:        #cbd5e1;
+  --ink:          #1a2e2c;
+  --ink-2:        #3d6360;
+  --ink-3:        #7aacaa;
+  --ink-4:        #aecfcd;
 
-  /* Indigo accent — vibrant */
-  --accent:       #6366f1;
-  --accent-light: #eef2ff;
-  --accent-mid:   rgba(99,102,241,0.18);
-  --accent-soft:  #f5f3ff;
+  /* Tiffany Blue — primary accent */
+  --accent:       #3db5ad;
+  --accent-light: #dff5f4;
+  --accent-mid:   rgba(61,181,173,0.18);
+  --accent-soft:  #eefaf9;
 
-  /* Semantic — more saturated */
-  --red:          #ef4444;
-  --red-light:    #fef2f2;
-  --amber:        #f59e0b;
-  --amber-light:  #fffbeb;
-  --blue:         #3b82f6;
-  --blue-light:   #eff6ff;
-  --green:        #10b981;
-  --green-light:  #ecfdf5;
-  --purple:       #8b5cf6;
-  --purple-light: #f5f3ff;
-  --pink:         #ec4899;
-  --pink-light:   #fdf2f8;
+  /* Retro Calm semantic mapping */
+  --red:          #c0392b;
+  --red-light:    #fdf0ee;
+  --amber:        #c4845f;   /* darker terracotta for readability */
+  --amber-light:  #faf0e9;
+  --blue:         #9165c2;   /* darker lavender for readability */
+  --blue-light:   #f2ecfb;
+  --green:        #8f9e1a;   /* darker olive for readability */
+  --green-light:  #f6f8de;
+  --purple:       #9165c2;
+  --purple-light: #f2ecfb;
 
-  /* New fonts */
+  /* Raw palette colors for decorative use */
+  --c-tiffany:    #81D8D0;
+  --c-terracotta: #D99E82;
+  --c-olive:      #D7D982;
+  --c-lavender:   #AE82D9;
+
   --font:         'Plus Jakarta Sans', system-ui, sans-serif;
   --serif:        'Fraunces', Georgia, serif;
   --mono:         'JetBrains Mono', monospace;
@@ -96,15 +104,15 @@ img { display: block; max-width: 100%; }
    DARK SIDEBAR
    ═══════════════════════════════════════════════════════════ */
 .sidebar {
-  background: linear-gradient(180deg, #0f172a 0%, #160f2e 60%, #0f172a 100%) !important;
-  border-right: 1px solid #1e293b !important;
-  box-shadow: 4px 0 24px rgba(99,102,241,0.08);
+  background: linear-gradient(180deg, #1b2b2a 0%, #1a2624 60%, #162220 100%) !important;
+  border-right: 1px solid #243533 !important;
+  box-shadow: 4px 0 24px rgba(129,216,208,0.06);
 }
-.sidebar-logo { border-bottom: 1px solid rgba(255,255,255,0.05); }
+.sidebar-logo { border-bottom: 1px solid rgba(129,216,208,0.08); }
 .logo-mark {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
-  color: #fff !important;
-  box-shadow: 0 0 20px rgba(99,102,241,0.6), 0 4px 12px rgba(99,102,241,0.3);
+  background: linear-gradient(135deg, #81D8D0, #AE82D9) !important;
+  color: #1a2e2c !important;
+  box-shadow: 0 0 20px rgba(129,216,208,0.5), 0 4px 12px rgba(129,216,208,0.25);
 }
 .logo-name { color: #f1f5f9 !important; }
 .logo-sub  { color: #64748b !important; }
@@ -121,15 +129,15 @@ img { display: block; max-width: 100%; }
   color: #f1f5f9 !important;
 }
 .nav-item.active {
-  background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(99,102,241,0.05)) !important;
-  color: #a5b4fc !important;
-  font-weight: 600;
-  border-left: 2px solid #6366f1;
+  background: linear-gradient(90deg, rgba(129,216,208,0.18), rgba(129,216,208,0.04)) !important;
+  color: #81D8D0 !important;
+  font-weight: 700;
+  border-left: 2px solid #81D8D0;
   padding-left: 9px;
 }
 .nav-item.active::before { display: none; }
 .nav-item i { color: inherit !important; }
-.nav-item.active i { color: #818cf8 !important; opacity: 1 !important; }
+.nav-item.active i { color: #81D8D0 !important; opacity: 1 !important; }
 
 .sidebar-user { border-top: 1px solid #1e293b !important; }
 .user-card:hover { background: #1e293b !important; }
@@ -364,37 +372,39 @@ img { display: block; max-width: 100%; }
 .btn-success:hover { box-shadow: 0 2px 8px rgba(30,111,62,0.20); }
 
 .btn-primary {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #fff;
+  background: linear-gradient(135deg, #81D8D0, #3db5ad);
+  color: #1a2e2c;
   border-color: transparent;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(129,216,208,0.4);
 }
 .btn-primary:hover {
-  background: linear-gradient(135deg, #4f46e5, #4338ca);
-  box-shadow: 0 4px 16px rgba(99,102,241,0.45);
+  background: linear-gradient(135deg, #3db5ad, #2da09a);
+  box-shadow: 0 4px 18px rgba(129,216,208,0.55);
   transform: translateY(-1px);
 }
 
 .btn-success {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: linear-gradient(135deg, #81D8D0, #AE82D9);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 2px 8px rgba(16,185,129,0.25);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(174,130,217,0.3);
 }
 .btn-success:hover {
-  background: linear-gradient(135deg, #059669, #047857);
-  box-shadow: 0 4px 14px rgba(16,185,129,0.35);
+  background: linear-gradient(135deg, #AE82D9, #9165c2);
+  box-shadow: 0 4px 16px rgba(174,130,217,0.45);
 }
 
 .btn-danger {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
+  background: linear-gradient(135deg, #e8856a, #c0392b);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 2px 8px rgba(239,68,68,0.25);
+  box-shadow: 0 2px 8px rgba(192,57,43,0.25);
 }
 .btn-danger:hover {
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  box-shadow: 0 4px 14px rgba(239,68,68,0.35);
+  background: linear-gradient(135deg, #c0392b, #a93226);
+  box-shadow: 0 4px 14px rgba(192,57,43,0.4);
 }
 
 .btn-ghost {
@@ -404,7 +414,7 @@ img { display: block; max-width: 100%; }
 }
 .btn-ghost:hover {
   background: var(--bg-hover);
-  border-color: var(--accent);
+  border-color: var(--c-tiffany);
   color: var(--accent);
 }
 
@@ -2437,30 +2447,31 @@ kbd {
 /* ═══════════════════════════════════════════════════════════
    COLOURFUL STAT CARDS — solid gradient backgrounds
    ═══════════════════════════════════════════════════════════ */
+/* Stat cards using Retro Calm palette */
 .stat-card:nth-child(1) {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  border: none; color: #fff;
+  background: linear-gradient(135deg, #81D8D0 0%, #5ec4bc 100%);
+  border: none; color: #1a2e2c;
 }
 .stat-card:nth-child(2) {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  background: linear-gradient(135deg, #D99E82 0%, #c4845f 100%);
   border: none; color: #fff;
 }
 .stat-card:nth-child(3) {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, #e8856a 0%, #c0392b 100%);
   border: none; color: #fff;
 }
 .stat-card:nth-child(4) {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #AE82D9 0%, #9165c2 100%);
   border: none; color: #fff;
 }
 .stat-card:nth-child(1):hover,
 .stat-card:nth-child(2):hover,
 .stat-card:nth-child(3):hover,
 .stat-card:nth-child(4):hover { transform: translateY(-3px); }
-.stat-card:nth-child(1):hover { box-shadow: 0 8px 30px rgba(99,102,241,0.5); }
-.stat-card:nth-child(2):hover { box-shadow: 0 8px 30px rgba(245,158,11,0.5); }
-.stat-card:nth-child(3):hover { box-shadow: 0 8px 30px rgba(239,68,68,0.5); }
-.stat-card:nth-child(4):hover { box-shadow: 0 8px 30px rgba(16,185,129,0.5); }
+.stat-card:nth-child(1):hover { box-shadow: 0 8px 30px rgba(129,216,208,0.55); }
+.stat-card:nth-child(2):hover { box-shadow: 0 8px 30px rgba(217,158,130,0.55); }
+.stat-card:nth-child(3):hover { box-shadow: 0 8px 30px rgba(192,57,43,0.45); }
+.stat-card:nth-child(4):hover { box-shadow: 0 8px 30px rgba(174,130,217,0.55); }
 
 .stat-card .stat-label-top { color: rgba(255,255,255,0.8) !important; font-weight: 700; }
 .stat-card .stat-value      { color: #fff !important; }
@@ -2473,24 +2484,25 @@ kbd {
 /* ═══════════════════════════════════════════════════════════
    VIBRANT TAGS
    ═══════════════════════════════════════════════════════════ */
-.tag-daily   { background: #ede9fe; color: #7c3aed; font-weight: 600; }
-.tag-weekly  { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
-.tag-monthly { background: #fef3c7; color: #b45309; font-weight: 600; }
-.tag-oneoff  { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
-.tag-pending  { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.tag-progress { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
-.tag-done     { background: #d1fae5; color: #065f46; font-weight: 600; }
-.tag-overdue  { background: #fee2e2; color: #b91c1c; font-weight: 600; }
-.tag-high     { background: #fee2e2; color: #b91c1c; font-weight: 600; }
-.tag-medium   { background: #fef3c7; color: #b45309; font-weight: 600; }
-.tag-low      { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+/* Retro Calm tag colors */
+.tag-daily   { background: #e4f7f6; color: #2a9d94; font-weight: 600; border: 1px solid #b8e8e5; }
+.tag-weekly  { background: #f2ecfb; color: #7b4db5; font-weight: 600; border: 1px solid #d8c4f0; }
+.tag-monthly { background: #faf0e9; color: #a3613c; font-weight: 600; border: 1px solid #e8c8ae; }
+.tag-oneoff  { background: #f4faf9; color: #4a6b69; border: 1px solid #cce8e6; }
+.tag-pending  { background: #f4faf9; color: #5a8280; border: 1px solid #cce8e6; }
+.tag-progress { background: #e4f7f6; color: #2a9d94; font-weight: 600; border: 1px solid #b8e8e5; }
+.tag-done     { background: #f6f8de; color: #7a8214; font-weight: 600; border: 1px solid #d0d490; }
+.tag-overdue  { background: #fdf0ee; color: #9a2a1a; font-weight: 600; border: 1px solid #e8b4ae; }
+.tag-high     { background: #fdf0ee; color: #9a2a1a; font-weight: 600; border: 1px solid #e8b4ae; }
+.tag-medium   { background: #faf0e9; color: #a3613c; font-weight: 600; border: 1px solid #e8c8ae; }
+.tag-low      { background: #f4faf9; color: #4a6b69; border: 1px solid #cce8e6; }
 
 /* ═══════════════════════════════════════════════════════════
    TASK TABLE HEADER — VISIBLE
    ═══════════════════════════════════════════════════════════ */
 .task-table-head th {
-  background: #f8fafc !important;
-  color: #475569 !important;
+  background: #eef7f6 !important;
+  color: #3d6360 !important;
   font-weight: 700 !important;
   font-size: 10.5px !important;
   letter-spacing: 0.8px !important;
@@ -2500,9 +2512,9 @@ kbd {
   background: #f8fafc !important;
   font-size: 11px !important;
 }
-.task-group-row.overdue-group td { color: #ef4444 !important; }
-.task-group-row.today-group  td  { color: #6366f1 !important; }
-.task-group-row.normal-group td  { color: #64748b !important; }
+.task-group-row.overdue-group td { color: #c0392b !important; }
+.task-group-row.today-group  td  { color: #3db5ad !important; }
+.task-group-row.normal-group td  { color: #4a6b69 !important; }
 
 /* ═══════════════════════════════════════════════════════════
    DASHBOARD HERO GRADIENT STRIP
@@ -2548,24 +2560,24 @@ kbd {
    FILTER CHIPS — vibrant active
    ═══════════════════════════════════════════════════════════ */
 .filter-chip.on {
-  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+  background: linear-gradient(135deg, #81D8D0, #3db5ad) !important;
   border-color: transparent !important;
-  color: #fff !important;
-  font-weight: 600 !important;
-  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+  color: #1a2e2c !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 10px rgba(129,216,208,0.45);
 }
 
 /* ═══════════════════════════════════════════════════════════
    ACCENT — update to indigo for check marks, progress etc.
    ═══════════════════════════════════════════════════════════ */
-.task-check.checked { background: #6366f1 !important; border-color: #6366f1 !important; }
-.progress-fill      { background: #6366f1 !important; }
+.task-check.checked { background: #81D8D0 !important; border-color: #3db5ad !important; color: #1a2e2c !important; }
+.progress-fill      { background: linear-gradient(90deg, #81D8D0, #AE82D9) !important; }
 
 /* ═══════════════════════════════════════════════════════════
    GRADIENT PAGE TITLE
    ═══════════════════════════════════════════════════════════ */
 .page-title {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  background: linear-gradient(135deg, #3db5ad 0%, #AE82D9 60%, #D99E82 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -2599,21 +2611,21 @@ kbd {
    SEARCH BOX — glowing focus
    ═══════════════════════════════════════════════════════════ */
 .search-box:focus-within {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+  border-color: #81D8D0 !important;
+  box-shadow: 0 0 0 3px rgba(129,216,208,0.2);
 }
 .form-input:focus, .form-select:focus, .form-textarea:focus {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
+  border-color: #81D8D0 !important;
+  box-shadow: 0 0 0 3px rgba(129,216,208,0.18) !important;
   background: #fff !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
    AVATARS — gradient backgrounds
    ═══════════════════════════════════════════════════════════ */
-.av-admin  { background: linear-gradient(135deg, #6366f1, #4f46e5) !important; color: #fff !important; border: none !important; }
-.av-asst   { background: linear-gradient(135deg, #10b981, #059669) !important; color: #fff !important; border: none !important; }
-.av-viewer { background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #fff !important; border: none !important; }
+.av-admin  { background: linear-gradient(135deg, #81D8D0, #3db5ad) !important; color: #1a2e2c !important; border: none !important; }
+.av-asst   { background: linear-gradient(135deg, #AE82D9, #9165c2) !important; color: #fff !important; border: none !important; }
+.av-viewer { background: linear-gradient(135deg, #D99E82, #c4845f) !important; color: #fff !important; border: none !important; }
 
 /* ═══════════════════════════════════════════════════════════
    KANBAN COLUMNS — gradient headers
@@ -2627,29 +2639,30 @@ kbd {
 /* ═══════════════════════════════════════════════════════════
    ROLE PILLS — gradient
    ═══════════════════════════════════════════════════════════ */
-.role-admin  { background: linear-gradient(135deg, #6366f1, #4f46e5) !important; color: #fff !important; }
-.role-asst   { background: linear-gradient(135deg, #10b981, #059669) !important; color: #fff !important; border: none !important; }
-.role-viewer { background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #fff !important; border: none !important; }
+.role-admin  { background: linear-gradient(135deg, #81D8D0, #3db5ad) !important; color: #1a2e2c !important; border: none !important; }
+.role-asst   { background: linear-gradient(135deg, #AE82D9, #9165c2) !important; color: #fff !important; border: none !important; }
+.role-viewer { background: linear-gradient(135deg, #D99E82, #c4845f) !important; color: #fff !important; border: none !important; }
 
 /* ═══════════════════════════════════════════════════════════
    CONTENT BACKGROUND — subtle mesh
    ═══════════════════════════════════════════════════════════ */
 body {
-  background: #f1f5f9;
+  background: #f4faf9;
   background-image:
-    radial-gradient(at 20% 20%, rgba(99,102,241,0.04) 0%, transparent 50%),
-    radial-gradient(at 80% 80%, rgba(139,92,246,0.04) 0%, transparent 50%),
-    radial-gradient(at 50% 50%, rgba(236,72,153,0.02) 0%, transparent 60%);
+    radial-gradient(at 15% 25%, rgba(129,216,208,0.08) 0%, transparent 50%),
+    radial-gradient(at 85% 75%, rgba(174,130,217,0.06) 0%, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(215,217,130,0.04) 0%, transparent 60%);
 }
 
 /* ═══════════════════════════════════════════════════════════
    PIPELINE TABS — pill style
    ═══════════════════════════════════════════════════════════ */
 .pipeline-tab.active {
-  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+  background: linear-gradient(135deg, #81D8D0, #3db5ad) !important;
   border-color: transparent !important;
-  color: #fff !important;
-  box-shadow: 0 2px 10px rgba(99,102,241,0.35);
+  color: #1a2e2c !important;
+  font-weight: 700;
+  box-shadow: 0 3px 14px rgba(129,216,208,0.5);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2666,9 +2679,14 @@ body {
   50%       { background-position: 100% 50%; }
 }
 .login-page {
-  background: linear-gradient(-45deg, #0f172a, #1e1b4b, #160a2e, #0f172a) !important;
+  background: linear-gradient(-45deg, #1b2b2a, #1a2030, #24292a, #162624) !important;
   background-size: 400% 400% !important;
   animation: gradientShift 8s ease infinite;
+}
+.login-page::before {
+  background:
+    radial-gradient(circle at 30% 50%, rgba(129,216,208,0.12) 0%, transparent 60%),
+    radial-gradient(circle at 75% 25%, rgba(174,130,217,0.08) 0%, transparent 50%) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
