@@ -124,9 +124,9 @@ function renderTaskCard(task) {
           ${fmtDate(task.dueDate)}
         </span>
         ${!done && canClose
-          ? `<button class="btn btn-success btn-sm"
+          ? `<button class="btn btn-success btn-sm" style="padding:3px 8px;font-size:11px"
                onclick="event.stopPropagation();openTaskModal('${task.id}','close')">
-               <i class="ti ti-circle-check"></i> Close
+               <i class="ti ti-circle-check" style="font-size:11px"></i> Close
              </button>`
           : ''}
       </div>
