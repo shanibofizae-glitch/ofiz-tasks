@@ -348,7 +348,7 @@
       <!-- REMINDERS -->
       <div id="page-reminders" class="page">
         <div class="section-head" style="margin-bottom:18px">
-          <span class="section-title">Payment reminders</span>
+          <span class="section-title">Reminders &amp; events</span>
           <button class="btn btn-primary btn-sm" onclick="openAddReminderModal()">
             <i class="ti ti-plus"></i> Add reminder
           </button>
@@ -358,7 +358,7 @@
           <button class="filter-chip on" data-filter="rem-status" onclick="setReminderFilter('all',this)">All</button>
           <button class="filter-chip" data-filter="rem-status" onclick="setReminderFilter('upcoming',this)">Upcoming</button>
           <button class="filter-chip" data-filter="rem-status" onclick="setReminderFilter('overdue',this)">Overdue</button>
-          <button class="filter-chip" data-filter="rem-status" onclick="setReminderFilter('paid',this)">Paid</button>
+          <button class="filter-chip" data-filter="rem-status" onclick="setReminderFilter('done',this)">Completed</button>
         </div>
         <div id="reminder-list"></div>
       </div>
@@ -991,27 +991,41 @@
       <input type="hidden" id="rf-id">
       <div class="form-group">
         <label class="form-label">Title <span style="color:var(--red)">*</span></label>
-        <input type="text" id="rf-title" class="form-input" placeholder="e.g. SGMA PDC Cheque — June">
+        <input type="text" id="rf-title" class="form-input" placeholder="e.g. SGMA PDC Cheque / Team meeting / Visa renewal">
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Category <span style="color:var(--red)">*</span></label>
           <select id="rf-category" class="form-select">
-            <option value="PDC Cheque">PDC Cheque</option>
-            <option value="Credit Card">Credit Card</option>
-            <option value="Bank Transfer">Bank Transfer</option>
-            <option value="VAT Payment">VAT Payment</option>
-            <option value="WPS">WPS</option>
-            <option value="Loan Payment">Loan Payment</option>
-            <option value="Lease / Rent">Lease / Rent</option>
-            <option value="Supplier Payment">Supplier Payment</option>
-            <option value="Tax Payment">Tax Payment</option>
-            <option value="Custom">Custom</option>
+            <optgroup label="Payments">
+              <option value="PDC Cheque">PDC Cheque</option>
+              <option value="Credit Card">Credit Card</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Supplier Payment">Supplier Payment</option>
+              <option value="Loan Payment">Loan Payment</option>
+              <option value="Lease / Rent">Lease / Rent</option>
+              <option value="VAT Payment">VAT Payment</option>
+              <option value="WPS">WPS</option>
+              <option value="Tax Payment">Tax Payment</option>
+            </optgroup>
+            <optgroup label="Events &amp; Follow-ups">
+              <option value="Meeting">Meeting</option>
+              <option value="Client Call">Client Call</option>
+              <option value="Follow-up">Follow-up</option>
+              <option value="Deadline">Deadline</option>
+              <option value="Document Request">Document Request</option>
+              <option value="Visa / Immigration">Visa / Immigration</option>
+              <option value="License Renewal">License Renewal</option>
+              <option value="Contract Renewal">Contract Renewal</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option value="Custom">Custom</option>
+            </optgroup>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Description / Amount</label>
-          <input type="text" id="rf-amount" class="form-input" placeholder="e.g. AED 15,000 or Cheque #123456">
+          <label class="form-label">Amount / Reference <span style="color:var(--ink-4)">(optional)</span></label>
+          <input type="text" id="rf-amount" class="form-input" placeholder="e.g. AED 15,000 · Cheque #123 · Zoom link">
         </div>
       </div>
       <div class="form-row">
@@ -1020,12 +1034,12 @@
           <select id="rf-client" class="form-select"></select>
         </div>
         <div class="form-group">
-          <label class="form-label">Due date <span style="color:var(--red)">*</span></label>
+          <label class="form-label">Date <span style="color:var(--red)">*</span></label>
           <input type="date" id="rf-date" class="form-input">
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Remind me (days before due date)</label>
+        <label class="form-label">Remind me (days before)</label>
         <div style="display:flex;gap:8px">
           <input type="number" id="rf-r1" class="form-input" placeholder="e.g. 7" min="1" style="font-family:var(--mono)" title="First reminder">
           <input type="number" id="rf-r2" class="form-input" placeholder="e.g. 3" min="1" style="font-family:var(--mono)" title="Second reminder">

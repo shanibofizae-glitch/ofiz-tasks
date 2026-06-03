@@ -3760,16 +3760,27 @@ function _renderTemplatChecklist() {
    REMINDERS MODULE
    ═══════════════════════════════════════════════════════════ */
 const REM_CATS = {
-  'PDC Cheque':       { icon:'ti-checkbook',     color:'#5b3fa6', bg:'var(--purple-light)' },
-  'Credit Card':      { icon:'ti-credit-card',   color:'#c0392b', bg:'var(--red-light)'    },
-  'Bank Transfer':    { icon:'ti-building-bank', color:'#1a5fb4', bg:'var(--blue-light)'   },
-  'VAT Payment':      { icon:'ti-receipt',       color:'#0d7a6b', bg:'var(--accent-light)' },
-  'WPS':              { icon:'ti-cash',          color:'#b7691a', bg:'var(--amber-light)'  },
-  'Loan Payment':     { icon:'ti-coin',          color:'#c0392b', bg:'var(--red-light)'    },
-  'Lease / Rent':     { icon:'ti-home',          color:'#1a5fb4', bg:'var(--blue-light)'   },
-  'Supplier Payment': { icon:'ti-truck',         color:'#5b3fa6', bg:'var(--purple-light)' },
-  'Tax Payment':      { icon:'ti-calculator',    color:'#0d7a6b', bg:'var(--accent-light)' },
-  'Custom':           { icon:'ti-bell',          color:'#6b6760', bg:'var(--bg-active)'    },
+  /* Payments */
+  'PDC Cheque':        { icon:'ti-checkbook',     color:'#5b3fa6', bg:'var(--purple-light)' },
+  'Credit Card':       { icon:'ti-credit-card',   color:'#c0392b', bg:'var(--red-light)'    },
+  'Bank Transfer':     { icon:'ti-building-bank', color:'#1a5fb4', bg:'var(--blue-light)'   },
+  'VAT Payment':       { icon:'ti-receipt',       color:'#0d7a6b', bg:'var(--accent-light)' },
+  'WPS':               { icon:'ti-cash',          color:'#b7691a', bg:'var(--amber-light)'  },
+  'Loan Payment':      { icon:'ti-coin',          color:'#c0392b', bg:'var(--red-light)'    },
+  'Lease / Rent':      { icon:'ti-home',          color:'#1a5fb4', bg:'var(--blue-light)'   },
+  'Supplier Payment':  { icon:'ti-truck',         color:'#5b3fa6', bg:'var(--purple-light)' },
+  'Tax Payment':       { icon:'ti-calculator',    color:'#0d7a6b', bg:'var(--accent-light)' },
+  /* Events & Follow-ups */
+  'Meeting':           { icon:'ti-users',         color:'#1a5fb4', bg:'var(--blue-light)'   },
+  'Client Call':       { icon:'ti-phone',         color:'#0d7a6b', bg:'var(--accent-light)' },
+  'Follow-up':         { icon:'ti-arrow-forward', color:'#b7691a', bg:'var(--amber-light)'  },
+  'Deadline':          { icon:'ti-alarm',         color:'#c0392b', bg:'var(--red-light)'    },
+  'Document Request':  { icon:'ti-file-text',     color:'#5b3fa6', bg:'var(--purple-light)' },
+  'Visa / Immigration':{ icon:'ti-plane',         color:'#1a5fb4', bg:'var(--blue-light)'   },
+  'License Renewal':   { icon:'ti-license',       color:'#b7691a', bg:'var(--amber-light)'  },
+  'Contract Renewal':  { icon:'ti-writing',       color:'#5b3fa6', bg:'var(--purple-light)' },
+  /* Other */
+  'Custom':            { icon:'ti-bell',          color:'#6b6760', bg:'var(--bg-active)'    },
 };
 
 let _remFilter = 'all';
@@ -3792,7 +3803,7 @@ function renderReminders() {
   let rems = [...State.reminders];
   if (_remFilter === 'upcoming') rems = rems.filter(r => r.active && !r.paidAt && r.eventDate >= today);
   else if (_remFilter === 'overdue') rems = rems.filter(r => r.active && !r.paidAt && r.eventDate < today);
-  else if (_remFilter === 'paid') rems = rems.filter(r => r.paidAt);
+  else if (_remFilter === 'done') rems = rems.filter(r => r.paidAt || !r.active);
   else rems = rems.filter(r => r.active || r.paidAt);
 
   rems.sort((a,b) => {
@@ -3826,73 +3837,128 @@ function renderReminders() {
     const days = r.eventDate
       ? Math.ceil((new Date(r.eventDate) - new Date(today)) / 86400000) : null;
 
+    /* Get occurrences for recurring reminders */
+    const allDates   = _getOccurrenceDates(r);
+    const paidDates  = r.paidDates || [];
+    const isRecurring = r.recurrence && r.recurrence !== 'none';
+
+    /* For display: next unpaid occurrence (or eventDate for one-time) */
+    const displayDate = isRecurring
+      ? (allDates.find(d => !paidDates.includes(d)) || allDates[allDates.length-1])
+      : r.eventDate;
+    const doneCount  = isRecurring ? paidDates.length : (paid ? 1 : 0);
+    const totalCount = isRecurring ? allDates.length : 1;
+    const allDone    = isRecurring ? (doneCount >= totalCount) : paid;
+
+    const dispDays = displayDate
+      ? Math.ceil((new Date(displayDate) - new Date(today)) / 86400000) : null;
+
     /* Days badge */
     let daysBadge = '';
-    if (paid) {
-      daysBadge = `<span class="rem-days-badge" style="background:var(--green-light);color:var(--green)">✓ Paid ${fmtDate(r.paidAt)}</span>`;
-    } else if (days === null) {
+    if (allDone) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--green-light);color:var(--green)">✓ Done</span>`;
+    } else if (dispDays === null) {
       daysBadge = '';
-    } else if (days < 0) {
-      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">⚠ ${Math.abs(days)}d overdue</span>`;
-    } else if (days === 0) {
-      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">🔴 Due today</span>`;
-    } else if (days <= 3) {
-      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">${days}d left</span>`;
-    } else if (days <= 7) {
-      daysBadge = `<span class="rem-days-badge" style="background:var(--amber-light);color:var(--amber)">${days}d left</span>`;
+    } else if (dispDays < 0) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">⚠ ${Math.abs(dispDays)}d overdue</span>`;
+    } else if (dispDays === 0) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">Today</span>`;
+    } else if (dispDays <= 3) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--red-light);color:var(--red)">${dispDays}d left</span>`;
+    } else if (dispDays <= 7) {
+      daysBadge = `<span class="rem-days-badge" style="background:var(--amber-light);color:var(--amber)">${dispDays}d left</span>`;
     } else {
-      daysBadge = `<span class="rem-days-badge" style="background:var(--green-light);color:var(--green)">${days}d away</span>`;
+      daysBadge = `<span class="rem-days-badge" style="background:var(--green-light);color:var(--green)">${dispDays}d away</span>`;
     }
 
-    const cardCls = paid ? 'paid' : days !== null && days < 0 ? 'overdue' : days !== null && days <= 7 ? 'due-soon' : '';
-
-    /* Reminder schedule chips */
-    const scheduleChips = [r.remind1, r.remind2, r.remind3].filter(Boolean)
-      .map(d => `<span class="rem-schedule-chip"><i class="ti ti-bell" style="font-size:9px"></i> ${d}d before</span>`)
-      .join('');
+    const cardCls = allDone ? 'paid' : dispDays !== null && dispDays < 0 ? 'overdue' : dispDays !== null && dispDays <= 7 ? 'due-soon' : '';
 
     /* Notify icons */
     const notifyHtml = `
-      ${r.notifyEmail ? '<i class="ti ti-mail" style="font-size:11px;color:var(--ink-4)" title="Email"></i>' : ''}
+      ${r.notifyEmail    ? '<i class="ti ti-mail" style="font-size:11px;color:var(--ink-4)" title="Email"></i>' : ''}
       ${r.notifyTelegram ? '<i class="ti ti-brand-telegram" style="font-size:11px;color:var(--ink-4)" title="Telegram"></i>' : ''}`;
+
+    /* Recurrence label */
+    const recLabel = isRecurring
+      ? `<span style="font-size:10px;font-weight:600;background:var(--blue-light);color:var(--blue);
+           padding:1px 7px;border-radius:20px">
+           ${r.recurrence === 'monthly' ? '↻ Monthly' : r.recurrence === 'quarterly' ? '↻ Quarterly' : '↻ Custom'}
+         </span>
+         <span style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">${doneCount}/${totalCount} done</span>`
+      : '';
+
+    /* Occurrence list for recurring */
+    const occurrenceHtml = isRecurring ? `
+      <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        ${allDates.slice(0, 6).map(d => {
+          const isDone = paidDates.includes(d);
+          const dDays  = Math.ceil((new Date(d) - new Date(today)) / 86400000);
+          const dStyle = isDone ? 'color:var(--ink-4);text-decoration:line-through' :
+                         dDays < 0 ? 'color:var(--red);font-weight:500' :
+                         dDays === 0 ? 'color:var(--red);font-weight:600' : 'color:var(--ink-2)';
+          return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;
+            border-bottom:1px solid var(--border)">
+            <span style="font-size:12px;${dStyle};font-family:var(--mono);min-width:90px">${fmtDate(d)}</span>
+            ${isDone
+              ? `<span style="font-size:11px;color:var(--accent)"><i class="ti ti-check" style="font-size:11px"></i> Done</span>`
+              : `<span style="font-size:11px;color:${dDays<0?'var(--red)':dDays<=7?'var(--amber)':'var(--ink-3)'}">${dDays<0?Math.abs(dDays)+'d overdue':dDays===0?'Today':dDays+'d away'}</span>`}
+            ${isAdmin && !isDone ? `<button class="btn btn-success btn-sm" style="padding:2px 8px;font-size:11px;margin-left:auto"
+              onclick="markOccurrenceDone('${r.id}','${d}')">
+              <i class="ti ti-check"></i> Done
+            </button>` : '<span style="margin-left:auto"></span>'}
+          </div>`;
+        }).join('')}
+        ${allDates.length > 6 ? `<div style="font-size:11px;color:var(--ink-4);margin-top:6px;text-align:center">
+          +${allDates.length - 6} more occurrences
+        </div>` : ''}
+      </div>` : '';
+
+    /* Schedule chips */
+    const scheduleChips = [r.remind1, r.remind2, r.remind3].filter(Boolean)
+      .map(d => `<span class="rem-schedule-chip"><i class="ti ti-bell" style="font-size:9px"></i> ${d}d before</span>`)
+      .join('');
 
     return `
     <div class="rem-card ${cardCls}">
       <div class="rem-icon" style="background:${cat.bg};color:${cat.color}">
         <i class="ti ${cat.icon}"></i>
       </div>
-      <div class="rem-body">
-        <div class="rem-title">${esc(r.title)}</div>
-        <div class="rem-meta">
-          <span style="background:${cat.bg};color:${cat.color};font-size:10px;font-weight:600;
-            padding:1px 8px;border-radius:20px">${r.category}</span>
-          ${c ? `<span style="color:${c.color};font-size:11px">● ${c.name}</span>` : ''}
-          <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${fmtDate(r.eventDate)}</span>
-          ${notifyHtml}
+      <div class="rem-body" style="flex:1">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div class="rem-title">${esc(r.title)}</div>
+            <div class="rem-meta">
+              <span style="background:${cat.bg};color:${cat.color};font-size:10px;font-weight:600;
+                padding:1px 8px;border-radius:20px">${r.category}</span>
+              ${recLabel}
+              ${c ? `<span style="color:${c.color};font-size:11px">● ${c.name}</span>` : ''}
+              ${!isRecurring ? `<span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">${fmtDate(r.eventDate)}</span>` : ''}
+              ${notifyHtml}
+            </div>
+            ${r.amount ? `<div style="font-size:12px;font-weight:600;color:var(--ink);margin-top:3px;font-family:var(--mono)">${esc(String(r.amount))}</div>` : ''}
+            ${scheduleChips ? `<div class="rem-schedule" style="margin-top:5px">${scheduleChips}</div>` : ''}
+            ${r.notes ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">${esc(r.notes)}</div>` : ''}
+            ${occurrenceHtml}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+            ${daysBadge}
+            ${isAdmin && !allDone ? `
+            <div class="rem-actions">
+              ${!isRecurring ? `<button class="btn btn-success btn-sm" onclick="markReminderDone('${r.id}')">
+                <i class="ti ti-circle-check"></i> Done
+              </button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="openEditReminderModal('${r.id}')">
+                <i class="ti ti-edit"></i>
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="confirmDeleteReminder('${r.id}')">
+                <i class="ti ti-trash"></i>
+              </button>
+            </div>` : isAdmin ? `
+            <button class="btn btn-ghost btn-sm" onclick="confirmDeleteReminder('${r.id}')">
+              <i class="ti ti-trash"></i>
+            </button>` : ''}
+          </div>
         </div>
-        ${scheduleChips ? `<div class="rem-schedule">${scheduleChips}</div>` : ''}
-        ${r.notes ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">${esc(r.notes)}</div>` : ''}
-      </div>
-      ${r.amount ? `<div class="rem-amount" style="font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;flex-shrink:0;text-align:right;font-family:var(--mono)">${esc(String(r.amount))}</div>` : ''}
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-        ${daysBadge}
-        ${isAdmin && !paid ? `
-        <div class="rem-actions">
-          <button class="btn btn-success btn-sm" onclick="markReminderPaid('${r.id}')" title="Mark as paid">
-            <i class="ti ti-circle-check"></i> Paid
-          </button>
-          <button class="btn btn-ghost btn-sm" onclick="openEditReminderModal('${r.id}')">
-            <i class="ti ti-edit"></i>
-          </button>
-          <button class="btn btn-danger btn-sm" onclick="confirmDeleteReminder('${r.id}')">
-            <i class="ti ti-trash"></i>
-          </button>
-        </div>` : isAdmin ? `
-        <div class="rem-actions">
-          <button class="btn btn-ghost btn-sm" onclick="confirmDeleteReminder('${r.id}')">
-            <i class="ti ti-trash"></i>
-          </button>
-        </div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -4065,35 +4131,49 @@ async function submitReminderForm() {
   const btn = document.querySelector('#reminder-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
-  const baseData = { title, category, amount, clientId, remind1, remind2, remind3, notifyEmail, notifyTelegram, notes };
+  /* Build recurrence config */
+  let recurrenceConfig = null;
+  if (_recurrenceType === 'monthly') {
+    recurrenceConfig = { months: parseInt(document.getElementById('rec-months')?.value) || 12 };
+  } else if (_recurrenceType === 'quarterly') {
+    recurrenceConfig = { quarters: parseInt(document.getElementById('rec-quarters')?.value) || 4 };
+  } else if (_recurrenceType === 'custom') {
+    recurrenceConfig = { dates: _recCustomDates.filter(Boolean) };
+  }
+
+  const data = {
+    title, category, amount, clientId, eventDate,
+    remind1, remind2, remind3, notifyEmail, notifyTelegram, notes,
+    recurrence: _recurrenceType || 'none',
+    recurrenceConfig,
+    paidDates: [],
+  };
 
   if (_editReminderId) {
-    await State.updateReminder(_editReminderId, { ...baseData, eventDate });
+    await State.updateReminder(_editReminderId, data);
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save reminder'; }
     toast('Reminder updated!');
-    closeReminderModal();
-    renderReminders();
-    return;
+  } else {
+    await State.addReminder(data);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save reminder'; }
+    const allDates = _getOccurrenceDates({ ...data, eventDate });
+    if (allDates.length > 1) toast(`Reminder created with ${allDates.length} occurrences!`);
+    else toast('Reminder added!');
   }
-
-  /* Generate all dates based on recurrence */
-  const dates = _generateDates(eventDate);
-  for (const date of dates) {
-    await State.addReminder({ ...baseData, eventDate: date });
-  }
-
-  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save reminder'; }
-
-  if (dates.length === 1) toast('Reminder added!');
-  else toast(`${dates.length} reminders created!`);
 
   closeReminderModal();
   renderReminders();
 }
 
-async function markReminderPaid(remId) {
-  await State.markReminderPaid(remId);
-  toast('Marked as paid! ✓');
+async function markReminderDone(remId) {
+  await State.markReminderPaid(remId); /* reuses existing paidAt field */
+  toast('Marked as done! ✓');
+  renderReminders();
+}
+
+async function markOccurrenceDone(remId, date) {
+  await State.markOccurrencePaid(remId, date);
+  toast(`${fmtDate(date)} marked as done ✓`);
   renderReminders();
 }
 

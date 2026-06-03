@@ -3,6 +3,34 @@
    Fill in your 4 credentials in the CONFIG block below.
    ============================================================ */
 
+/* Generate all occurrence dates for a reminder */
+function _getOccurrenceDates(rem) {
+  if (!rem.recurrence || rem.recurrence === 'none') {
+    return rem.eventDate ? [rem.eventDate] : [];
+  }
+  const cfg  = rem.recurrenceConfig || {};
+  const base = new Date(rem.eventDate);
+  const dates = [];
+  if (rem.recurrence === 'monthly') {
+    const n = cfg.months || 12;
+    for (let i = 0; i < n; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() + i, base.getDate());
+      dates.push(d.toISOString().slice(0, 10));
+    }
+  } else if (rem.recurrence === 'quarterly') {
+    const n = cfg.quarters || 4;
+    for (let i = 0; i < n; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() + (i * 3), base.getDate());
+      dates.push(d.toISOString().slice(0, 10));
+    }
+  } else if (rem.recurrence === 'custom') {
+    dates.push(rem.eventDate);
+    (cfg.dates || []).forEach(d => { if (d && !dates.includes(d)) dates.push(d); });
+    dates.sort();
+  }
+  return dates;
+}
+
 /* Parse subtasks JSON stored in sheet column */
 function _parseSt(val) {
   if (!val || !String(val).trim()) return [];
@@ -308,47 +336,53 @@ const Sheets = {
   },
 
   /* Reminders */
+  _remRow(rem) {
+    return [
+      rem.id, rem.title, rem.category, rem.amount||'', rem.clientId||'',
+      rem.eventDate, rem.remind1||'', rem.remind2||'', rem.remind3||'',
+      String(rem.notifyEmail !== false), String(rem.notifyTelegram !== false),
+      rem.notes||'', String(rem.active !== false), rem.paidAt||'',
+      rem.recurrence||'none',
+      rem.recurrenceConfig ? JSON.stringify(rem.recurrenceConfig) : '',
+      rem.paidDates?.length ? JSON.stringify(rem.paidDates) : '',
+    ];
+  },
   async loadReminders() {
-    const rows = await this._get('Reminders!A2:N');
+    const rows = await this._get('Reminders!A2:Q');
     if (!rows || !rows.length) return [];
     return rows.filter(r => r[0]).map(r => ({
-      id:              r[0]  || '',
-      title:           r[1]  || '',
-      category:        r[2]  || 'Custom',
-      amount:          r[3]  ? Number(r[3]) : null,
-      clientId:        r[4]  || '',
-      eventDate:       r[5] || '',
-      remind1:         r[6]  ? Number(r[6]) : null,
-      remind2:         r[7]  ? Number(r[7]) : null,
-      remind3:         r[8]  ? Number(r[8]) : null,
-      notifyEmail:     r[9]  !== 'false' && r[9]  !== false,
-      notifyTelegram:  r[10] !== 'false' && r[10] !== false,
-      notes:           r[11] || '',
-      active:          r[12] !== 'false' && r[12] !== false,
-      paidAt:          r[13] || '',
+      id:               r[0]  || '',
+      title:            r[1]  || '',
+      category:         r[2]  || 'Custom',
+      amount:           r[3]  || null,
+      clientId:         r[4]  || '',
+      eventDate:        r[5]  || '',
+      remind1:          r[6]  ? Number(r[6]) : null,
+      remind2:          r[7]  ? Number(r[7]) : null,
+      remind3:          r[8]  ? Number(r[8]) : null,
+      notifyEmail:      r[9]  !== 'false' && r[9]  !== false,
+      notifyTelegram:   r[10] !== 'false' && r[10] !== false,
+      notes:            r[11] || '',
+      active:           r[12] !== 'false' && r[12] !== false,
+      paidAt:           r[13] || '',
+      recurrence:       r[14] || 'none',
+      recurrenceConfig: _parseSt(r[15]),
+      paidDates:        _parseSt(r[16]),
     }));
   },
   async addReminder(rem) {
-    return !!(await this._post({ action:'append', tab:'Reminders',
-      row:[rem.id, rem.title, rem.category, rem.amount||'', rem.clientId||'',
-           rem.eventDate, rem.remind1||'', rem.remind2||'', rem.remind3||'',
-           String(rem.notifyEmail), String(rem.notifyTelegram),
-           rem.notes||'', 'true', ''] }));
+    return !!(await this._post({ action:'append', tab:'Reminders', row:this._remRow(rem) }));
   },
   async updateReminder(rem) {
     const rowNum = await this.findRow('Reminders', rem.id);
     if (rowNum < 0) return false;
-    return !!(await this._post({ action:'update', tab:'Reminders', rowNum,
-      row:[rem.id, rem.title, rem.category, rem.amount||'', rem.clientId||'',
-           rem.eventDate, rem.remind1||'', rem.remind2||'', rem.remind3||'',
-           String(rem.notifyEmail), String(rem.notifyTelegram),
-           rem.notes||'', String(rem.active), rem.paidAt||''] }));
+    return !!(await this._post({ action:'update', tab:'Reminders', rowNum, row:this._remRow(rem) }));
   },
   async deleteReminder(id) {
     const rowNum = await this.findRow('Reminders', id);
     if (rowNum < 0) return false;
     return !!(await this._post({ action:'update', tab:'Reminders', rowNum,
-      row:['','','','','','','','','','','','','',''] }));
+      row:['','','','','','','','','','','','','','','','',''] }));
   },
 
   /* Client notes */
@@ -1206,6 +1240,20 @@ State.deleteReminder = async function(id) {
 State.markReminderPaid = async function(id) {
   const today = new Date().toISOString().slice(0,10);
   return await this.updateReminder(id, { paidAt: today, active: false });
+};
+
+State.markOccurrencePaid = async function(id, date) {
+  const rem = this.reminders.find(r => r.id === id);
+  if (!rem) return;
+  const paidDates = [...(rem.paidDates || [])];
+  if (!paidDates.includes(date)) paidDates.push(date);
+  rem.paidDates = paidDates;
+  /* Mark overall active=false only when all occurrences are paid */
+  const allDates = _getOccurrenceDates(rem);
+  if (allDates.length > 0 && allDates.every(d => paidDates.includes(d))) {
+    rem.active = false;
+  }
+  if (this.useSheets) Sheets.updateReminder(rem);
 };
 
 State.upcomingReminders = function() {
