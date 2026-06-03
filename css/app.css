@@ -487,8 +487,7 @@ img { display: block; max-width: 100%; }
 }
 .task-card.done:hover { opacity: 0.7; }
 
-/* Single card in a date group — spans full width */
-.date-group-section > .task-card:only-child { grid-column: 1 / -1; }
+/* Cards always half width — 2 per line */
 
 /* Top row: check + title + assignee */
 .tc-top {
