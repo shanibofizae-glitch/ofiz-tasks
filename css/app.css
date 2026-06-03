@@ -484,9 +484,7 @@ img { display: block; max-width: 100%; }
 .task-card.done { background: var(--bg); opacity: 0.55; }
 .task-card.done:hover { opacity: 0.7; }
 
-/* 1 card alone OR last card in odd group → full row. Pairs → 50% each */
-.date-group-section > .task-card:last-child:nth-child(odd),
-.task-list > .task-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* All cards same width — no exceptions */
 
 /* Row 1: checkbox · title · assignee avatar */
 .tc-top {
@@ -521,8 +519,18 @@ img { display: block; max-width: 100%; }
 }
 .task-card.done .task-title { text-decoration: line-through; color: var(--ink-3); }
 
-/* Notes hidden on card view */
-.tc-note { display: none; }
+/* Notes — 1 line on card */
+.tc-note {
+  font-size: 11px;
+  color: var(--ink-3);
+  line-height: 1.4;
+  margin: 3px 0 0 22px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.task-card.done .tc-note { opacity: 0.6; }
 
 /* Row 2: tags · date · close */
 .tc-bottom {
@@ -2287,19 +2295,19 @@ body.dark {
    DATE GROUP HEADERS (All Tasks)
    ═══════════════════════════════════════════════════════════ */
 .date-group-head {
-  grid-column: 1 / -1; /* span full width when inside a grid */
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.7px;
-  padding: 5px 2px 7px;
-  margin-top: 14px;
+  padding: 4px 2px 6px;
+  margin-top: 10px;
   border-bottom: 1.5px solid var(--border);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .date-group-head:first-child { margin-top: 0; }
 .date-group-head.overdue-head {
@@ -2334,11 +2342,12 @@ body.dark {
   border-color: rgba(13,122,107,0.2);
 }
 .date-group-section {
+  grid-column: 1 / -1;          /* span the full outer task-list grid */
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
   align-items: start;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 @media (max-width: 1100px) {
   .date-group-section { grid-template-columns: 1fr; }
