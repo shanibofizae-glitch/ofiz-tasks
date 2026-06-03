@@ -452,7 +452,15 @@ img { display: block; max-width: 100%; }
 /* ═══════════════════════════════════════════════════════════
    TASK CARDS
    ═══════════════════════════════════════════════════════════ */
-.task-list { display: flex; flex-direction: column; gap: 3px; }
+.task-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .task-list { grid-template-columns: 1fr; }
+}
 
 .task-card {
   background: var(--bg-card);
@@ -2248,6 +2256,7 @@ body.dark {
    DATE GROUP HEADERS (All Tasks)
    ═══════════════════════════════════════════════════════════ */
 .date-group-head {
+  grid-column: 1 / -1; /* span full width when inside a grid */
   display: flex;
   align-items: center;
   gap: 7px;
@@ -2293,7 +2302,16 @@ body.dark {
   color: var(--accent);
   border-color: rgba(13,122,107,0.2);
 }
-.date-group-section { margin-bottom: 4px; }
+.date-group-section {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  align-items: start;
+  margin-bottom: 4px;
+}
+@media (max-width: 900px) {
+  .date-group-section { grid-template-columns: 1fr; }
+}
 
 /* ═══════════════════════════════════════════════════════════
    BULK ACTION BAR
