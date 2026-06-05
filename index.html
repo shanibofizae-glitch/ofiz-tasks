@@ -28,52 +28,41 @@
       <div class="login-sub">Task management for OFIZ Accounting</div>
     </div>
 
-    <!-- Step 1: Pick user -->
-    <div id="login-step-1">
-      <div class="login-divider">Sign in as</div>
-      <div class="demo-users" id="user-select-list"></div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Username</label>
+      <input type="text" id="login-username" class="form-input"
+        placeholder="Enter your name"
+        onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()"
+        autocomplete="username">
     </div>
 
-    <!-- Step 2: Enter password -->
-    <div id="login-step-2" style="display:none">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
-        <button onclick="backToUserSelect()"
-          style="background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:13px;display:flex;align-items:center;gap:4px;padding:0">
-          <i class="ti ti-arrow-left" style="font-size:14px"></i> Back
+    <div class="form-group" style="margin-bottom:20px">
+      <label class="form-label">Password</label>
+      <div style="position:relative">
+        <input type="password" id="login-password" class="form-input"
+          placeholder="Enter your password"
+          onkeydown="if(event.key==='Enter')submitLogin()"
+          autocomplete="current-password"
+          style="padding-right:42px">
+        <button onclick="togglePasswordVisibility()"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+            background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:16px">
+          <i class="ti ti-eye" id="pw-toggle-icon"></i>
         </button>
       </div>
-      <div id="selected-user-display"
-        style="display:flex;align-items:center;gap:12px;padding:12px 14px;
-          background:var(--bg);border:1px solid var(--border-md);
-          border-radius:var(--radius);margin-bottom:18px">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <div style="position:relative">
-          <input type="password" id="login-password" class="form-input"
-            placeholder="Enter your password"
-            onkeydown="if(event.key==='Enter')submitPassword()"
-            style="padding-right:42px">
-          <button onclick="togglePasswordVisibility()"
-            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
-              background:none;border:none;cursor:pointer;color:var(--ink-3);font-size:16px"
-            id="pw-toggle-btn">
-            <i class="ti ti-eye" id="pw-toggle-icon"></i>
-          </button>
-        </div>
-        <div id="login-error"
-          style="display:none;color:var(--red);font-size:12px;margin-top:6px">
-          <i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i>
-          Incorrect password. Please try again.
-        </div>
-      </div>
-      <button class="btn btn-primary" style="width:100%;justify-content:center"
-        onclick="submitPassword()">
-        <i class="ti ti-login"></i> Sign in
-      </button>
     </div>
 
-    <div class="login-footer">
+    <div id="login-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:14px">
+      <i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i>
+      <span id="login-error-msg">Incorrect username or password.</span>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;justify-content:center" id="login-btn"
+      onclick="submitLogin()">
+      <i class="ti ti-login"></i> Sign in
+    </button>
+
+    <div class="login-footer" style="margin-top:20px">
       OFIZ Accounting &mdash; Internal use only
     </div>
   </div>
@@ -108,11 +97,8 @@
         <i class="ti ti-layout-kanban"></i> Pipelines
         <span class="nav-badge badge-overdue" id="badge-pipelines" style="display:none">!</span>
       </div>
-      <div class="nav-item" data-page="templates" data-admin-only onclick="showPage('templates',this)">
+      <div class="nav-item" data-page="templates" data-hide-viewer onclick="showPage('templates',this)">
         <i class="ti ti-repeat"></i> Recurring
-      </div>
-      <div class="nav-item" data-page="close" data-admin-only onclick="showPage('close',this)">
-        <i class="ti ti-calendar-check"></i> Monthly close
       </div>
 
       <div style="height:1px;background:var(--border);margin:8px 10px"></div>
@@ -127,6 +113,9 @@
       <div class="nav-item" data-page="reminders" onclick="showPage('reminders',this)">
         <i class="ti ti-bell"></i> Reminders
         <span class="nav-badge badge-overdue" id="badge-reminders" style="display:none">!</span>
+      </div>
+      <div class="nav-item" data-page="notepad" onclick="showPage('notepad',this)">
+        <i class="ti ti-notes"></i> Notepad
       </div>
 
       <div class="nav-group-label">Admin</div>
@@ -194,13 +183,34 @@
 
       <!-- DASHBOARD -->
       <div id="page-dashboard" class="page active">
+
+        <!-- Good morning + Quick Actions -->
+        <div class="dash-greeting-bar">
+          <div id="dash-greeting" class="dash-greeting"></div>
+          <div class="dash-quick-actions" data-admin-only>
+            <button class="btn btn-ghost btn-sm" onclick="openNewTaskModal()">
+              <i class="ti ti-plus"></i> New task
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('clients',document.querySelector('[data-page=clients]'));setTimeout(openNewClientModal,200)">
+              <i class="ti ti-building-store"></i> New client
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('reminders',document.querySelector('[data-page=reminders]'));setTimeout(openAddReminderModal,200)">
+              <i class="ti ti-bell"></i> Add reminder
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('templates',document.querySelector('[data-page=templates]'))">
+              <i class="ti ti-sparkles"></i> Generate tasks
+            </button>
+          </div>
+        </div>
+
+        <!-- Stat cards -->
         <div class="stats-grid" style="margin-bottom:20px">
           <div class="stat-card">
             <div class="stat-top">
-              <span class="stat-label-top">Total tasks</span>
+              <span class="stat-label-top">Active tasks</span>
               <span class="stat-dot blue"></span>
             </div>
-            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-value" id="stat-active">0</div>
             <div class="stat-sub">across all clients</div>
           </div>
           <div class="stat-card">
@@ -213,6 +223,14 @@
           </div>
           <div class="stat-card">
             <div class="stat-top">
+              <span class="stat-label-top">Due this week</span>
+              <span class="stat-dot" style="background:var(--c-tiffany)"></span>
+            </div>
+            <div class="stat-value" id="stat-week">0</div>
+            <div class="stat-sub">today through Sunday</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-top">
               <span class="stat-label-top">Overdue</span>
               <span class="stat-dot red"></span>
             </div>
@@ -221,27 +239,77 @@
           </div>
           <div class="stat-card">
             <div class="stat-top">
-              <span class="stat-label-top">Completed</span>
+              <span class="stat-label-top">Done / Total</span>
               <span class="stat-dot green"></span>
             </div>
-            <div class="stat-value" id="stat-done">0</div>
-            <div class="stat-sub">this period</div>
+            <div class="stat-value" id="stat-total-done" style="font-size:clamp(14px,2.2vw,22px)">0 / 0</div>
+            <div class="stat-sub">completed of all tasks</div>
           </div>
         </div>
 
-        <div class="chart-wrap" id="chart-wrap" style="margin-bottom:24px">
-          <div class="section-head" style="margin-bottom:14px">
-            <span class="section-title">Completions this month</span>
+        <!-- 7-day timeline -->
+        <div class="dash-section" style="margin-bottom:20px">
+          <div class="section-head" style="margin-bottom:12px">
+            <span class="section-title">Upcoming 7 days</span>
           </div>
-          <canvas id="completion-chart" style="display:block;width:100%;height:160px"></canvas>
+          <div id="dash-timeline" class="dash-timeline"></div>
         </div>
 
+        <!-- Middle row: Client health + Reminders + Expiring docs -->
+        <div class="dash-mid-row" style="margin-bottom:20px">
+          <div class="dash-widget">
+            <div class="section-head" style="margin-bottom:12px">
+              <span class="section-title">Client health</span>
+              <button class="btn btn-ghost btn-sm" onclick="showPage('clients',document.querySelector('[data-page=clients]'))">
+                View all <i class="ti ti-arrow-right"></i>
+              </button>
+            </div>
+            <div id="dash-client-health"></div>
+          </div>
+          <div class="dash-widget">
+            <div class="section-head" style="margin-bottom:12px">
+              <span class="section-title">Reminders due soon</span>
+              <button class="btn btn-ghost btn-sm" onclick="showPage('reminders',document.querySelector('[data-page=reminders]'))">
+                View all <i class="ti ti-arrow-right"></i>
+              </button>
+            </div>
+            <div id="dash-reminders"></div>
+          </div>
+          <div class="dash-widget">
+            <div class="section-head" style="margin-bottom:12px">
+              <span class="section-title">Expiring documents</span>
+              <button class="btn btn-ghost btn-sm" onclick="showPage('documents',document.querySelector('[data-page=documents]'))">
+                View all <i class="ti ti-arrow-right"></i>
+              </button>
+            </div>
+            <div id="dash-exp-docs"></div>
+          </div>
+        </div>
+
+        <!-- Bottom row: Workload + Chart + Activity -->
+        <div class="dash-bot-row" style="margin-bottom:20px">
+          <div class="dash-bot-left">
+            <div class="section-head" style="margin-bottom:12px">
+              <span class="section-title">Team workload</span>
+            </div>
+            <div id="workload-section"></div>
+          </div>
+          <div class="dash-bot-mid">
+            <div class="section-head" style="margin-bottom:12px">
+              <span class="section-title">Completions this month</span>
+            </div>
+            <canvas id="completion-chart" style="display:block;width:100%;height:160px"></canvas>
+          </div>
+          <div class="dash-bot-right">
+            <div class="section-head" style="margin-bottom:12px">
+              <span class="section-title">Recent activity</span>
+            </div>
+            <div id="dash-activity"></div>
+          </div>
+        </div>
+
+        <!-- Priority tasks -->
         <div class="section-head" style="margin-bottom:12px">
-          <span class="section-title">Team workload</span>
-        </div>
-        <div id="workload-section" style="margin-bottom:24px"></div>
-
-        <div class="section-head">
           <span class="section-title">Priority tasks</span>
           <button class="btn btn-ghost btn-sm" onclick="showPage('tasks',document.querySelector('[data-page=tasks]'))">
             View all <i class="ti ti-arrow-right"></i>
@@ -264,6 +332,7 @@
           <button class="filter-chip"     data-filter="type" onclick="setFilter('type','weekly',this)">Weekly</button>
           <button class="filter-chip"     data-filter="type" onclick="setFilter('type','monthly',this)">Monthly</button>
           <button class="filter-chip"     data-filter="type" onclick="setFilter('type','oneoff',this)">One-off</button>
+          <button class="filter-chip"     data-filter="type" onclick="setFilter('type','quarterly',this)">Quarterly</button>
           <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
             <select id="filter-assignee-select" class="form-select" style="height:32px;font-size:12px;padding:0 28px 0 10px;width:130px;border-radius:20px"></select>
             <select id="filter-client-select" class="form-select" style="height:32px;font-size:12px;padding:0 28px 0 10px;width:160px;border-radius:20px"></select>
@@ -285,19 +354,17 @@
         <!-- Bulk action bar -->
         <div id="bulk-action-bar" class="bulk-bar" style="display:none">
           <span id="bulk-count">0 selected</span>
-          <button class="btn btn-sm" style="background:var(--green);color:#fff;border:none" onclick="bulkClose()">
+          <button class="btn btn-confirm btn-sm" onclick="bulkClose()">
             <i class="ti ti-circle-check"></i> Mark done
           </button>
-          <select id="bulk-reassign-sel" onchange="bulkReassign(this.value)"
-            style="height:30px;font-size:12px;padding:0 24px 0 8px;border-radius:var(--radius-sm);
-              background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);
-              color:var(--bg-sidebar);font-family:var(--font);cursor:pointer">
+          <select id="bulk-reassign-sel" onchange="bulkReassign(this.value)" class="btn-on-dark"
+            style="height:30px;font-size:var(--text-sm);padding:0 24px 0 8px;border-radius:var(--radius-sm);font-family:var(--font);cursor:pointer">
             <option value="">Reassign to…</option>
           </select>
-          <button class="btn btn-sm" style="background:var(--red);color:#fff;border:none" onclick="bulkDelete()">
+          <button class="btn btn-danger btn-sm" onclick="bulkDelete()">
             <i class="ti ti-trash"></i> Delete
           </button>
-          <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--bg-sidebar);border-color:rgba(255,255,255,0.2)" onclick="clearBulkSelection()">
+          <button class="btn btn-on-dark btn-sm" style="margin-left:auto" onclick="clearBulkSelection()">
             <i class="ti ti-x"></i> Cancel
           </button>
         </div>
@@ -340,7 +407,7 @@
             <div style="display:flex;gap:3px">
               <button id="csort-manual" class="btn btn-ghost btn-sm"
                 onclick="setClientSort('manual')"
-                style="background:var(--ink);color:var(--bg-sidebar);border-color:var(--ink)"
+                style="background:linear-gradient(135deg,#81D8D0,#3db5ad);color:#1a2e2c;border-color:transparent;font-weight:700"
                 title="Manual order (drag to reorder)">
                 <i class="ti ti-drag-drop" style="font-size:12px"></i>
               </button>
@@ -375,12 +442,20 @@
 
       <!-- DOCUMENTS -->
       <div id="page-documents" class="page">
-        <div id="doc-expiry-alert" style="display:none;margin-bottom:20px"></div>
-        <div class="section-head" style="margin-bottom:18px">
+        <div id="doc-expiry-alert" style="display:none;margin-bottom:16px"></div>
+        <div class="section-head" style="margin-bottom:14px">
           <span class="section-title">Client documents</span>
           <button class="btn btn-primary btn-sm" data-admin-only onclick="openAddDocumentModal()">
             <i class="ti ti-plus"></i> Add document
           </button>
+        </div>
+        <div class="filter-bar" style="margin-bottom:16px">
+          <button class="filter-chip on" data-doc-filter="all"      onclick="setDocFilter('all',this)">All</button>
+          <button class="filter-chip"    data-doc-filter="expired"  onclick="setDocFilter('expired',this)">
+            <i class="ti ti-alert-circle" style="font-size:11px;margin-right:3px"></i>Expired
+          </button>
+          <button class="filter-chip"    data-doc-filter="expiring" onclick="setDocFilter('expiring',this)">Expiring soon</button>
+          <button class="filter-chip"    data-doc-filter="valid"    onclick="setDocFilter('valid',this)">Valid</button>
         </div>
         <div id="document-list"></div>
       </div>
@@ -389,7 +464,7 @@
       <div id="page-reminders" class="page">
         <div class="section-head" style="margin-bottom:18px">
           <span class="section-title">Reminders &amp; events</span>
-          <button class="btn btn-primary btn-sm" onclick="openAddReminderModal()">
+          <button class="btn btn-primary btn-sm" data-hide-viewer onclick="openAddReminderModal()">
             <i class="ti ti-plus"></i> Add reminder
           </button>
         </div>
@@ -403,36 +478,64 @@
         <div id="reminder-list"></div>
       </div>
 
+      <!-- NOTEPAD — rendered by renderNotepad() in ui.js -->
+      <div id="page-notepad" class="page"></div>
+
       <!-- RECURRING TEMPLATES -->
       <div id="page-templates" class="page">
-        <div class="section-head" style="margin-bottom:18px">
-          <span class="section-title">Recurring templates</span>
-          <button class="btn btn-primary btn-sm" onclick="openNewTemplateModal()">
+        <div class="section-head" style="margin-bottom:16px">
+          <span class="section-title">Recurring tasks</span>
+          <button class="btn btn-primary btn-sm" data-admin-only onclick="openNewTemplateModal()">
             <i class="ti ti-plus"></i> New template
           </button>
         </div>
 
+        <!-- Filter bar -->
+        <div class="filter-bar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <select id="tpl-client-filter" class="form-select"
+            style="height:30px;font-size:12px;width:160px;padding:0 24px 0 8px"
+            onchange="renderTemplates()">
+            <option value="all">All clients</option>
+          </select>
+          <div style="display:flex;gap:4px">
+            <button class="filter-chip on" data-tpl-filter="all"       onclick="setTplFilter('all',this)">All</button>
+            <button class="filter-chip"    data-tpl-filter="daily"     onclick="setTplFilter('daily',this)">Daily</button>
+            <button class="filter-chip"    data-tpl-filter="weekly"    onclick="setTplFilter('weekly',this)">Weekly</button>
+            <button class="filter-chip"    data-tpl-filter="monthly"   onclick="setTplFilter('monthly',this)">Monthly</button>
+            <button class="filter-chip"    data-tpl-filter="quarterly" onclick="setTplFilter('quarterly',this)">Quarterly</button>
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="filter-chip on" data-tpl-status="all"    onclick="setTplStatusFilter('all',this)">All</button>
+            <button class="filter-chip"    data-tpl-status="active" onclick="setTplStatusFilter('active',this)">Active</button>
+            <button class="filter-chip"    data-tpl-status="paused" onclick="setTplStatusFilter('paused',this)">Paused</button>
+          </div>
+          <select id="tpl-sort" class="form-select" style="height:30px;font-size:12px;width:150px;padding:0 24px 0 8px;margin-left:auto" onchange="renderTemplates()">
+            <option value="default">Sort: Default</option>
+            <option value="client">Sort: Client A–Z</option>
+            <option value="title">Sort: Title A–Z</option>
+            <option value="recurrence">Sort: Recurrence</option>
+          </select>
+        </div>
+
         <!-- Generate bar -->
-        <div style="background:var(--bg-card);border:1px solid var(--border);
-          border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:22px;
-          display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="background:linear-gradient(135deg,var(--accent-light),var(--bg-card));
+          border:1px solid var(--border);border-radius:var(--radius-lg);
+          padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <i class="ti ti-sparkles" style="font-size:20px;color:var(--accent)"></i>
           <div style="flex:1;min-width:180px">
-            <div style="font-size:13px;font-weight:500;color:var(--ink);margin-bottom:3px">
-              Generate tasks from templates
-            </div>
-            <div style="font-size:11.5px;color:var(--ink-3)">
-              Creates one task per active template with the correct due date for the selected month.
-            </div>
+            <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px">Generate tasks for a month</div>
+            <div style="font-size:11.5px;color:var(--ink-3)">Creates one task per active template with the correct due date.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-            <input type="month" id="tg-month" class="form-input" style="width:160px;height:34px">
+            <input type="month" id="tg-month" class="form-input" style="width:155px;height:32px">
             <button class="btn btn-primary btn-sm" id="tg-btn" onclick="generateFromTemplates()">
               <i class="ti ti-sparkles"></i> Generate
             </button>
           </div>
         </div>
 
-        <div class="task-list" id="template-list"></div>
+        <!-- Table -->
+        <div id="template-list"></div>
       </div>
 
       <!-- USERS & ROLES -->
@@ -445,23 +548,80 @@
           <table class="perm-table">
             <thead>
               <tr>
-                <th>Permission</th>
+                <th style="width:52%">Permission</th>
                 <th><span class="role-pill role-admin"><i class="ti ti-crown" style="font-size:10px"></i> Admin</span></th>
                 <th><span class="role-pill role-asst"><i class="ti ti-pencil" style="font-size:10px"></i> Assistant</span></th>
                 <th><span class="role-pill role-viewer"><i class="ti ti-eye" style="font-size:10px"></i> Viewer</span></th>
               </tr>
             </thead>
             <tbody>
-              <tr><td>View all tasks</td>                  <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
-              <tr><td>View assigned tasks only</td>        <td>—</td><td><i class="ti ti-minus icon-mid"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
-              <tr><td>Create new tasks</td>                <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>Edit existing tasks</td>             <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>Close task + closing comment</td>    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>Add comments / notes</td>            <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>Delete tasks</td>                    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>Manage recurring templates</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>Manage users & clients</td>          <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
-              <tr><td>View client health reports</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- DASHBOARD -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-layout-dashboard"></i> Dashboard</td></tr>
+              <tr><td>View dashboard &amp; stats</td>            <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>View team workload</td>                    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- TASKS -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-list-check"></i> Tasks</td></tr>
+              <tr><td>View all tasks (all clients)</td>          <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-minus icon-mid"></i></td></tr>
+              <tr><td>View own assigned tasks only</td>          <td>—</td>                                    <td>—</td>                                    <td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>Create new tasks</td>                      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Edit task details</td>                     <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Close task (mark as done)</td>             <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Reopen completed task</td>                 <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Add comments to tasks</td>                 <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Delete tasks</td>                          <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Duplicate task / Save as template</td>     <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Bulk select, close &amp; reassign tasks</td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Bulk delete tasks</td>                     <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- PIPELINES -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-layout-kanban"></i> Pipelines</td></tr>
+              <tr><td>View pipelines &amp; kanban board</td>     <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>Move cards between stages</td>             <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Create / Edit / Delete pipelines</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Add tasks to pipeline</td>                 <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- CLIENTS -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-building-store"></i> Clients</td></tr>
+              <tr><td>View client list &amp; health scores</td>  <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>View client profile (overview, tasks, time)</td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>View client documents tab</td>             <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>View shareholders &amp; IDs</td>           <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Add notes on client profile</td>           <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Create / Edit / Archive clients</td>       <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Edit client profile details</td>           <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Add / Edit shareholders &amp; their docs</td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>       <td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- DOCUMENTS -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-file-certificate"></i> Documents</td></tr>
+              <tr><td>View client documents &amp; expiry dates</td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Add / Edit / Delete documents</td>         <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Create renewal tasks from document</td>    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- REMINDERS -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-bell"></i> Reminders</td></tr>
+              <tr><td>View own reminders</td>                    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+              <tr><td>View all reminders (all users)</td>        <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Create / Edit / Delete reminders</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Mark reminder as done</td>                 <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- RECURRING TEMPLATES -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-repeat"></i> Recurring Templates</td></tr>
+              <tr><td>View recurring templates</td>              <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Create / Edit / Delete templates</td>      <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Generate tasks for a month</td>            <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+
+              <!-- NOTEPAD -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-notes"></i> Notepad</td></tr>
+              <tr><td>Use scratch pad &amp; sticky notes</td>    <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-check icon-yes"></i></td></tr>
+
+              <!-- ADMIN -->
+              <tr class="perm-section"><td colspan="4"><i class="ti ti-shield-lock"></i> Administration</td></tr>
+              <tr><td>View Users &amp; Roles page</td>           <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Create / Edit / Delete users</td>          <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+              <tr><td>Access Settings page</td>                  <td><i class="ti ti-check icon-yes"></i></td><td><i class="ti ti-x icon-no"></i></td>        <td><i class="ti ti-x icon-no"></i></td></tr>
+
             </tbody>
           </table>
         </div>
@@ -533,58 +693,15 @@
         <div id="kanban-board-wrap"></div>
       </div>
 
-      <!-- MONTHLY CLOSE -->
-      <div id="page-close" class="page">
-        <div class="close-card">
-          <div class="form-row" style="margin-bottom:20px">
-            <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Month</label>
-              <input type="month" id="cl-month" class="form-input" oninput="updateCloseLabel()">
-            </div>
-            <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Default assignee</label>
-              <select id="cl-assignee" class="form-select"></select>
-            </div>
-          </div>
-
-          <div class="close-grid">
-            <div>
-              <div class="section-title" style="margin-bottom:12px">Task types</div>
-              <div class="close-check-list" id="cl-task-list"></div>
-            </div>
-            <div>
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-                <span class="section-title">Clients</span>
-                <button class="btn btn-ghost btn-sm" onclick="toggleAllClients()" id="cl-toggle-btn">Deselect all</button>
-              </div>
-              <div class="close-check-list" id="cl-client-list"></div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-            <span style="font-size:12px;color:var(--ink-3)" id="cl-count-label"></span>
-            <button class="btn btn-primary" onclick="generateCloseChecklist()" id="cl-gen-btn">
-              <i class="ti ti-sparkles"></i> <span id="cl-gen-label">Generate checklist</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="cl-result" style="display:none;margin-top:24px">
-          <div class="section-head" style="margin-bottom:14px">
-            <span class="section-title" id="cl-result-title"></span>
-            <button class="btn btn-ghost btn-sm"
-              onclick="showPage('tasks',document.querySelector('[data-page=tasks]'))">
-              View in All tasks <i class="ti ti-arrow-right"></i>
-            </button>
-          </div>
-          <div class="task-list" id="cl-task-results"></div>
-        </div>
-      </div>
-
       <!-- SETTINGS -->
       <div id="page-settings" class="page">
         <div id="settings-demo-banner"></div>
-        <div class="settings-section">
+
+        <!-- Preferences: company, theme, workflow, export — rendered by renderSettingsPreferences() -->
+        <div id="settings-preferences"></div>
+
+        <!-- Users -->
+        <div class="settings-section" style="margin-bottom:32px">
           <div class="section-head" style="margin-bottom:18px">
             <span class="section-title">Users</span>
             <button class="btn btn-primary btn-sm" onclick="openAddUserModal()">
@@ -593,15 +710,6 @@
           </div>
           <div class="settings-list" id="settings-user-list"></div>
         </div>
-        <div class="settings-section" style="margin-top:36px">
-          <div class="section-head" style="margin-bottom:18px">
-            <span class="section-title">Clients</span>
-            <button class="btn btn-primary btn-sm" onclick="openNewClientModal()">
-              <i class="ti ti-plus"></i> Add client
-            </button>
-          </div>
-          <div class="settings-list" id="settings-client-list"></div>
-        </div>
       </div>
 
     </div>
@@ -609,7 +717,7 @@
 </div>
 
 <!-- TASK DETAIL MODAL -->
-<div class="modal-overlay" id="task-detail-modal" onclick="if(event.target===this)closeTaskModal()">
+<div class="modal-overlay" id="task-detail-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="modal-task-title">Task detail</div>
@@ -621,7 +729,7 @@
 </div>
 
 <!-- NEW / EDIT TASK MODAL -->
-<div class="modal-overlay" id="task-form-modal" onclick="if(event.target===this)closeTaskForm()">
+<div class="modal-overlay" id="task-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="task-form-title">New task</div>
@@ -650,6 +758,7 @@
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
               <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Quarterly</option>
               <option value="oneoff">One-off</option>
             </select>
           </div>
@@ -695,7 +804,7 @@
 <div class="toast-wrap" id="toast-wrap"></div>
 
 <!-- NEW CLIENT MODAL -->
-<div class="modal-overlay" id="client-form-modal" onclick="if(event.target===this)closeClientForm()">
+<div class="modal-overlay" id="client-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title">New client</div>
@@ -720,6 +829,16 @@
           </div>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Trade licence no. <span style="color:var(--ink-4)">(optional)</span></label>
+          <input type="text" id="cf-trade-license" class="form-input" placeholder="e.g. CN-1234567">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Trade licence expiry <span style="color:var(--ink-4)">(optional)</span></label>
+          <input type="date" id="cf-tl-expiry" class="form-input">
+        </div>
+      </div>
       <div class="form-group">
         <label class="form-label">Tags <span style="color:var(--ink-4)">(optional — comma separated)</span></label>
         <input type="text" id="cf-tags" class="form-input" placeholder="e.g. VAT, WPS, Payroll, Audit">
@@ -735,7 +854,7 @@
 </div>
 
 <!-- NEW PIPELINE MODAL -->
-<div class="modal-overlay" id="pipeline-form-modal" onclick="if(event.target===this)closePipelineModal()">
+<div class="modal-overlay" id="pipeline-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="pipeline-form-title">New pipeline</div>
@@ -768,7 +887,7 @@
 </div>
 
 <!-- ADD TASK TO PIPELINE MODAL -->
-<div class="modal-overlay" id="pipe-task-modal" onclick="if(event.target===this)closePipeTaskModal()">
+<div class="modal-overlay" id="pipe-task-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title">Add task to pipeline</div>
@@ -818,7 +937,7 @@
 </div>
 
 <!-- NEW TEMPLATE MODAL -->
-<div class="modal-overlay" id="template-form-modal" onclick="if(event.target===this)closeTemplateModal()">
+<div class="modal-overlay" id="template-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="template-form-modal-title">New recurring template</div>
@@ -848,6 +967,7 @@
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly" selected>Monthly</option>
+            <option value="quarterly">Quarterly</option>
           </select>
         </div>
         <div class="form-group" id="tmf-day-group">
@@ -862,6 +982,19 @@
             <option value="Sat">Saturday</option>
             <option value="Sun">Sunday</option>
           </select>
+        </div>
+      </div>
+
+      <!-- Quarterly: quarter start month (shown only for quarterly) -->
+      <div class="form-group" id="tmf-quarter-group" style="display:none">
+        <label class="form-label">VAT quarter pattern</label>
+        <select id="tmf-quarter-start" class="form-select">
+          <option value="1">Jan · Apr · Jul · Oct</option>
+          <option value="2">Feb · May · Aug · Nov</option>
+          <option value="3">Mar · Jun · Sep · Dec</option>
+        </select>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">
+          Task generates on the 1st of each due month
         </div>
       </div>
 
@@ -886,6 +1019,29 @@
             <label class="form-label">Estimated hours</label>
             <input type="number" id="tmf-hours" class="form-input" min="0" step="0.5" placeholder="e.g. 2.5">
           </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            Start offset
+            <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"> — days before due date to start</span>
+          </label>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="number" id="tmf-start-offset" class="form-input" min="0" max="60" placeholder="0"
+              style="width:100px">
+            <span style="font-size:12px;color:var(--ink-3)">
+              e.g. 5 = task starts 5 days before due date
+            </span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            Month label in task name
+            <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"> — which month appears in the generated title</span>
+          </label>
+          <select id="tmf-title-month-offset" class="form-select" style="max-width:320px">
+            <option value="0">— No label (just the task title)</option>
+          </select>
+          <div id="tmf-label-hint" style="font-size:11px;color:var(--ink-3);margin-top:4px"></div>
         </div>
         <div class="form-group">
           <label class="form-label">Notes / Instructions</label>
@@ -940,7 +1096,7 @@
 </div>
 
 <!-- ADD / EDIT DOCUMENT MODAL -->
-<div class="modal-overlay" id="document-form-modal" onclick="if(event.target===this)closeDocumentModal()">
+<div class="modal-overlay" id="document-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="doc-form-title">Add document</div>
@@ -993,7 +1149,7 @@
 </div>
 
 <!-- CLIENT PROFILE MODAL -->
-<div class="modal-overlay" id="client-profile-modal" onclick="if(event.target===this)closeClientProfile()">
+<div class="modal-overlay" id="client-profile-modal" >
   <div class="modal" style="max-width:680px">
     <div class="modal-head">
       <div style="display:flex;align-items:center;gap:10px;min-width:0">
@@ -1017,15 +1173,16 @@
       <button class="cp-tab active" data-tab="overview" onclick="switchClientTab('overview',this)">Overview</button>
       <button class="cp-tab" data-tab="notes"    onclick="switchClientTab('notes',this)">Notes</button>
       <button class="cp-tab" data-tab="tasks"    onclick="switchClientTab('tasks',this)">Tasks</button>
-      <button class="cp-tab" data-tab="documents" onclick="switchClientTab('documents',this)">Documents</button>
-      <button class="cp-tab" data-tab="time"     onclick="switchClientTab('time',this)">Time log</button>
+      <button class="cp-tab" data-tab="shareholders" data-hide-viewer onclick="switchClientTab('shareholders',this)">Shareholders</button>
+      <button class="cp-tab" data-tab="documents"   onclick="switchClientTab('documents',this)">Documents</button>
+      <button class="cp-tab" data-tab="time"        onclick="switchClientTab('time',this)">Time log</button>
     </div>
     <div id="cp-body" style="padding:0;overflow-y:auto;max-height:65vh"></div>
   </div>
 </div>
 
 <!-- ADD / EDIT REMINDER MODAL -->
-<div class="modal-overlay" id="reminder-form-modal" onclick="if(event.target===this)closeReminderModal()">
+<div class="modal-overlay" id="reminder-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="reminder-form-title">Add reminder</div>
@@ -1119,7 +1276,7 @@
         <label class="form-label">Recurrence</label>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button type="button" class="btn btn-ghost btn-sm rec-btn" id="rec-none"
-            onclick="setRecurrenceType('none')" style="background:var(--ink);color:var(--bg-sidebar);border-color:var(--ink)">
+            onclick="setRecurrenceType('none')" style="background:linear-gradient(135deg,#81D8D0,#3db5ad);color:#1a2e2c;border-color:transparent;font-weight:700">
             One-time
           </button>
           <button type="button" class="btn btn-ghost btn-sm rec-btn" id="rec-monthly"
@@ -1227,7 +1384,7 @@
 </div>
 <div id="chat-overlay" onclick="closeChat()" style="display:none;position:fixed;inset:0;z-index:199;background:rgba(15,14,12,0.15)"></div>
 <!-- PIPELINE TEMPLATES MODAL -->
-<div class="modal-overlay" id="pipeline-templates-modal" onclick="if(event.target===this)closePipelineTemplatesModal()">
+<div class="modal-overlay" id="pipeline-templates-modal" >
   <div class="modal" style="max-width:680px">
     <div class="modal-head">
       <div class="modal-title">Pipeline templates</div>
@@ -1243,7 +1400,7 @@
 </div>
 
 <!-- ADD / EDIT USER MODAL -->
-<div class="modal-overlay" id="user-form-modal" onclick="if(event.target===this)closeUserModal()">
+<div class="modal-overlay" id="user-form-modal" >
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="user-form-title">Add user</div>
@@ -1310,7 +1467,7 @@
 </div>
 
 <!-- KEYBOARD SHORTCUT MODAL -->
-<div class="modal-overlay" id="shortcut-modal" onclick="if(event.target===this)closeShortcutModal()">
+<div class="modal-overlay" id="shortcut-modal" >
   <div class="modal" style="max-width:400px">
     <div class="modal-head">
       <div class="modal-title">Keyboard shortcuts</div>

@@ -94,10 +94,10 @@ const DEMO = {
    ══════════════════════════════════════════════════════════ */
 
 /* ── Field mappers: DB (snake_case) ↔ JS (camelCase) ─── */
-function _taskFromDb(r)    { return { id:r.id, title:r.title, clientId:r.client_id, type:r.type||'oneoff', status:r.status||'pending', priority:r.priority||'medium', assigneeId:r.assignee_id, dueDate:r.due_date||'', notes:r.notes||'', createdAt:r.created_at||'', closedAt:r.closed_at, closeComment:r.close_comment||'', pipelineId:r.pipeline_id, pipelineStageId:r.pipeline_stage_id, subtasks:Array.isArray(r.subtasks)?r.subtasks:[], blockedBy:Array.isArray(r.blocked_by)?r.blocked_by:[], stageEnteredAt:r.stage_entered_at||null }; }
-function _taskToDb(t)      { return { id:t.id, title:t.title, client_id:t.clientId||null, type:t.type, status:t.status, priority:t.priority, assignee_id:t.assigneeId||null, due_date:t.dueDate||null, notes:t.notes||'', created_at:t.createdAt, closed_at:t.closedAt||null, close_comment:t.closeComment||'', pipeline_id:t.pipelineId||null, pipeline_stage_id:t.pipelineStageId||null, subtasks:t.subtasks||[], blocked_by:t.blockedBy||[], stage_entered_at:t.stageEnteredAt||null }; }
-function _clientFromDb(r)  { return { id:r.id, name:r.name, short:r.short, color:r.color, bg:r.bg, active:r.active, tradeLicense:r.trade_license||'', trn:r.trn||'', corporateTaxNo:r.corporate_tax_no||'', incorporationDate:r.incorporation_date||'', contactName:r.contact_name||'', contactPhone:r.contact_phone||'', contactEmail:r.contact_email||'', contactWhatsapp:r.contact_whatsapp||'', classification:r.classification||'Mainland', vatRegistered:!!r.vat_registered, wpsRequired:!!r.wps_required, payrollManaged:!!r.payroll_managed, assignedAccountantId:r.assigned_accountant_id||'', clientSince:r.client_since||'', sortOrder:r.sort_order??999, vatStartDate:r.vat_start_date||'', ctAnniversaryDate:r.ct_anniversary_date||'', tags:Array.isArray(r.tags)?r.tags:[] }; }
-function _clientToDb(c)    { return { id:c.id, name:c.name, short:c.short, color:c.color, bg:c.bg, active:c.active!==false, trade_license:c.tradeLicense||'', trn:c.trn||'', corporate_tax_no:c.corporateTaxNo||'', incorporation_date:c.incorporationDate||null, contact_name:c.contactName||'', contact_phone:c.contactPhone||'', contact_email:c.contactEmail||'', contact_whatsapp:c.contactWhatsapp||'', classification:c.classification||'Mainland', vat_registered:!!c.vatRegistered, wps_required:!!c.wpsRequired, payroll_managed:!!c.payrollManaged, assigned_accountant_id:c.assignedAccountantId||null, client_since:c.clientSince||null, sort_order:c.sortOrder??0, vat_start_date:c.vatStartDate||null, ct_anniversary_date:c.ctAnniversaryDate||null, tags:c.tags||[] }; }
+function _taskFromDb(r)    { return { id:r.id, title:r.title, clientId:r.client_id, type:r.type||'oneoff', status:r.status||'pending', priority:r.priority||'medium', assigneeId:r.assignee_id, dueDate:r.due_date||'', startDate:r.start_date||'', notes:r.notes||'', createdAt:r.created_at||'', closedAt:r.closed_at, closeComment:r.close_comment||'', previousStatus:r.previous_status||'', pipelineId:r.pipeline_id, pipelineStageId:r.pipeline_stage_id, subtasks:Array.isArray(r.subtasks)?r.subtasks:[], blockedBy:Array.isArray(r.blocked_by)?r.blocked_by:[], stageEnteredAt:r.stage_entered_at||null }; }
+function _taskToDb(t)      { return { id:t.id, title:t.title, client_id:t.clientId||null, type:t.type, status:t.status, priority:t.priority, assignee_id:t.assigneeId||null, due_date:t.dueDate||null, start_date:t.startDate||null, notes:t.notes||'', created_at:t.createdAt, closed_at:t.closedAt||null, close_comment:t.closeComment||'', previous_status:t.previousStatus||null, pipeline_id:t.pipelineId||null, pipeline_stage_id:t.pipelineStageId||null, subtasks:t.subtasks||[], blocked_by:t.blockedBy||[], stage_entered_at:t.stageEnteredAt||null }; }
+function _clientFromDb(r)  { return { id:r.id, name:r.name, short:r.short, color:r.color, bg:r.bg, active:r.active, shareholders:Array.isArray(r.shareholders)?r.shareholders:[], tradeLicense:r.trade_license||'', tradeLicenseExpiry:r.trade_license_expiry||'', trn:r.trn||'', corporateTaxNo:r.corporate_tax_no||'', incorporationDate:r.incorporation_date||'', contactName:r.contact_name||'', contactPhone:r.contact_phone||'', contactEmail:r.contact_email||'', contactWhatsapp:r.contact_whatsapp||'', classification:r.classification||'Mainland', vatRegistered:!!r.vat_registered, wpsRequired:!!r.wps_required, payrollManaged:!!r.payroll_managed, assignedAccountantId:r.assigned_accountant_id||'', clientSince:r.client_since||'', sortOrder:r.sort_order??999, vatStartDate:r.vat_start_date||'', ctAnniversaryDate:r.ct_anniversary_date||'', tags:Array.isArray(r.tags)?r.tags:[] }; }
+function _clientToDb(c)    { return { id:c.id, name:c.name, short:c.short, color:c.color, bg:c.bg, active:c.active!==false, shareholders:c.shareholders||[], trade_license:c.tradeLicense||'', trade_license_expiry:c.tradeLicenseExpiry||null, trn:c.trn||'', corporate_tax_no:c.corporateTaxNo||'', incorporation_date:c.incorporationDate||null, contact_name:c.contactName||'', contact_phone:c.contactPhone||'', contact_email:c.contactEmail||'', contact_whatsapp:c.contactWhatsapp||'', classification:c.classification||'Mainland', vat_registered:!!c.vatRegistered, wps_required:!!c.wpsRequired, payroll_managed:!!c.payrollManaged, assigned_accountant_id:c.assignedAccountantId||null, client_since:c.clientSince||null, sort_order:c.sortOrder??0, vat_start_date:c.vatStartDate||null, ct_anniversary_date:c.ctAnniversaryDate||null, tags:c.tags||[] }; }
 function _userFromDb(r)    { return { id:r.id, name:r.name, email:r.email, role:r.role||'viewer', initials:r.initials||'?', avClass:r.av_class||'av-viewer', password:r.password||'', telegramChatId:r.telegram_chat_id||'' }; }
 function _userToDb(u)      { return { id:u.id, name:u.name, email:u.email, role:u.role, initials:u.initials, av_class:u.avClass, password:u.password, telegram_chat_id:u.telegramChatId||'' }; }
 function _commentFromDb(r) { return { id:r.id, taskId:r.task_id, userId:r.user_id, text:r.text, createdAt:r.created_at }; }
@@ -105,8 +105,8 @@ function _commentToDb(c)   { return { id:c.id, task_id:c.taskId, user_id:c.userI
 function _pipeFromDb(r)    { return { id:r.id, name:r.name, desc:r.description||'', active:r.active!==false }; }
 function _stageFromDb(r)   { return { id:r.id, pipelineId:r.pipeline_id, order:r.order||0, name:r.name, color:r.color||'', targetDays:r.target_days||0 }; }
 function _stageToDb(s)     { return { id:s.id, pipeline_id:s.pipelineId, order:s.order, name:s.name, color:s.color||'', target_days:s.targetDays||0 }; }
-function _tplFromDb(r)     { return { id:r.id, title:r.title, clientId:r.client_id, recurrence:r.recurrence||'monthly', dayOfMonth:r.day_of_month||null, dayOfWeek:r.day_of_week||null, assigneeId:r.assignee_id, active:r.active!==false, priority:r.priority||'medium', notes:r.notes||'', subtasks:Array.isArray(r.subtasks)?r.subtasks:[], pipelineId:r.pipeline_id||'', pipelineStageId:r.pipeline_stage_id||'', estimatedHours:r.estimated_hours||0, defaultComments:Array.isArray(r.default_comments)?r.default_comments:[], templateDependencies:Array.isArray(r.template_dependencies)?r.template_dependencies:[] }; }
-function _tplToDb(t)       { return { id:t.id, title:t.title, client_id:t.clientId, recurrence:t.recurrence, day_of_month:t.dayOfMonth||null, day_of_week:t.dayOfWeek||null, assignee_id:t.assigneeId, active:t.active!==false, priority:t.priority||'medium', notes:t.notes||'', subtasks:t.subtasks||[], pipeline_id:t.pipelineId||null, pipeline_stage_id:t.pipelineStageId||null, estimated_hours:t.estimatedHours||0, default_comments:t.defaultComments||[], template_dependencies:t.templateDependencies||[] }; }
+function _tplFromDb(r)     { return { id:r.id, title:r.title, clientId:r.client_id, recurrence:r.recurrence||'monthly', dayOfMonth:r.day_of_month||null, dayOfWeek:r.day_of_week||null, quarterStartMonth:r.quarter_start_month||1, titleMonthOffset:r.title_month_offset??0, assigneeId:r.assignee_id, active:r.active!==false, priority:r.priority||'medium', notes:r.notes||'', subtasks:Array.isArray(r.subtasks)?r.subtasks:[], pipelineId:r.pipeline_id||'', pipelineStageId:r.pipeline_stage_id||'', estimatedHours:r.estimated_hours||0, startOffsetDays:r.start_offset_days||0, defaultComments:Array.isArray(r.default_comments)?r.default_comments:[], templateDependencies:Array.isArray(r.template_dependencies)?r.template_dependencies:[] }; }
+function _tplToDb(t)       { return { id:t.id, title:t.title, client_id:t.clientId, recurrence:t.recurrence, day_of_month:t.dayOfMonth||null, day_of_week:t.dayOfWeek||null, quarter_start_month:t.quarterStartMonth||1, title_month_offset:t.titleMonthOffset||0, assignee_id:t.assigneeId, active:t.active!==false, priority:t.priority||'medium', notes:t.notes||'', subtasks:t.subtasks||[], pipeline_id:t.pipelineId||null, pipeline_stage_id:t.pipelineStageId||null, estimated_hours:t.estimatedHours||0, start_offset_days:t.startOffsetDays||0, default_comments:t.defaultComments||[], template_dependencies:t.templateDependencies||[] }; }
 function _docFromDb(r)     { return { id:r.id, clientId:r.client_id, type:r.type, number:r.number||'', expiryDate:r.expiry_date, notes:r.notes||'' }; }
 function _tlFromDb(r)      { return { id:r.id, taskId:r.task_id, userId:r.user_id, hours:r.hours||0, description:r.description||'', date:r.date, billable:r.billable!==false }; }
 function _msgFromDb(r)     { return { id:r.id, fromUserId:r.from_user_id, channel:r.channel, text:r.text, createdAt:r.created_at }; }
@@ -200,8 +200,8 @@ const Sheets = {
     const { data } = await this._q('templates').select('*');
     return (data||[]).map(_tplFromDb);
   },
-  async addTemplate(t)    { await this._q('templates').insert(_tplToDb(t)); },
-  async updateTemplate(t) { await this._q('templates').upsert(_tplToDb(t)); },
+  async addTemplate(t)    { const {error} = await this._q('templates').insert(_tplToDb(t)); if(error) { console.error('[DB] addTemplate:', error.message); throw new Error(error.message); } },
+  async updateTemplate(t) { const {error} = await this._q('templates').upsert(_tplToDb(t)); if(error) { console.error('[DB] updateTemplate:', error.message); throw new Error(error.message); } },
   async deleteTemplate(id){ await this._q('templates').delete().eq('id',id); },
 
   /* ── Documents ──────────────────────────────────── */
@@ -231,7 +231,7 @@ const Sheets = {
 
   /* ── Messages ───────────────────────────────────── */
   async loadMessages() {
-    const { data } = await this._q('messages').select('*').order('created_at',{ascending:false}).limit(200);
+    const { data } = await this._q('messages').select('*').order('id',{ascending:true}).limit(200);
     return (data||[]).map(_msgFromDb);
   },
   async sendMessage(m) { await this._q('messages').insert({id:m.id,from_user_id:m.fromUserId,channel:m.channel,text:m.text,created_at:m.createdAt}); },
@@ -455,13 +455,30 @@ const State = {
 
   /* ── Close a task with optional comment ─────────────── */
   async closeTask(id, comment) {
+    const existing = this.getTask(id);
     const task = await this.updateTask(id, {
-      status:       'done',
-      closedAt:     new Date().toISOString().slice(0,10),
-      closeComment: comment,
+      status:         'done',
+      previousStatus: existing?.status || 'pending',
+      closedAt:       new Date().toISOString().slice(0,10),
+      closeComment:   comment,
     });
     if (comment) await this.addComment(id, comment);
     await this.addActivity(id, `Task closed${comment ? ': ' + comment.slice(0,60) : ''}`);
+    return task;
+  },
+
+  /* ── Reopen a done task back to active ──────────────── */
+  async reopenTask(id) {
+    const existing = this.getTask(id);
+    /* Restore to the status saved before closing, fallback to 'pending' */
+    const restoreStatus = existing?.previousStatus || 'pending';
+    const task = await this.updateTask(id, {
+      status:         restoreStatus,
+      closedAt:       null,
+      closeComment:   null,
+      previousStatus: null,
+    });
+    await this.addActivity(id, 'Task reopened');
     return task;
   },
 
@@ -538,11 +555,18 @@ const State = {
     const visible = this.user?.role === 'admin'
       ? this.tasks
       : this.tasks.filter(t => t.assigneeId === this.user?.id);
+    const todayDate  = new Date(today);
+    const daysToSun  = todayDate.getDay() === 0 ? 0 : 7 - todayDate.getDay(); /* 0 on Sunday */
+    const sunday     = new Date(todayDate);
+    sunday.setDate(todayDate.getDate() + daysToSun);
+    const sundayStr  = sunday.toISOString().slice(0,10);
     return {
-      total:    visible.length,
-      dueToday: visible.filter(t => t.status !== 'done' && t.dueDate === today).length,
-      overdue:  visible.filter(t => t.status !== 'done' && t.dueDate <  today).length,
-      done:     visible.filter(t => t.status === 'done').length,
+      totalCount:  visible.length,
+      active:      visible.filter(t => t.status !== 'done').length,
+      dueToday:    visible.filter(t => t.status !== 'done' && t.dueDate === today).length,
+      dueThisWeek: visible.filter(t => t.status !== 'done' && t.dueDate >= today && t.dueDate <= sundayStr).length,
+      overdue:     visible.filter(t => t.status !== 'done' && t.dueDate <  today).length,
+      done:        visible.filter(t => t.status === 'done').length,
     };
   },
 
@@ -674,7 +698,15 @@ State.moveTaskStage = async function(taskId, stageId) {
 State.addTemplate = async function(data) {
   const template = { id:'tp' + Date.now(), ...data, active:true };
   this.templates.push(template);
-  if (this.useSheets) Sheets.addTemplate(template);
+  if (this.useSheets) {
+    try {
+      await Sheets.addTemplate(template);
+    } catch(e) {
+      /* Remove from local state if DB save failed */
+      this.templates = this.templates.filter(t => t.id !== template.id);
+      throw e;
+    }
+  }
   return template;
 };
 
@@ -1074,7 +1106,14 @@ State.createCtFilingReminder = async function(clientId) {
   return 1;
 };
 
-State.expiringDocuments = function(days = 30) {
+State.expiringDocuments = function(days) {
+  /* Use saved setting if no override passed */
+  if (days === undefined) {
+    try {
+      const s = JSON.parse(localStorage.getItem('ofiz_app_settings') || '{}');
+      days = s.expiryWarningDays || 30;
+    } catch(e) { days = 30; }
+  }
   const today = new Date().toISOString().slice(0,10);
   const limit = new Date(Date.now() + days * 86400000).toISOString().slice(0,10);
   return this.documents

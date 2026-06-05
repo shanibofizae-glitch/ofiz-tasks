@@ -27,9 +27,9 @@ function showPage(pageId, navEl) {
     templates: 'Recurring tasks',
     pipelines: 'Pipelines',
     settings:  'Settings',
-    close:     'Monthly close',
     documents: 'Documents',
     reminders: 'Reminders',
+    notepad:   'Notepad',
   };
   const titleEl = document.getElementById('page-title');
   if (titleEl) titleEl.textContent = titles[pageId] || '';
@@ -59,59 +59,13 @@ function refreshCurrentPage() {
     case 'templates': renderTemplates();      break;
     case 'pipelines': renderPipelinesPage();  break;
     case 'settings':  renderSettings();        break;
-    case 'close':     renderClosePage();      break;
     case 'documents': renderDocuments();      break;
     case 'reminders': renderReminders();      break;
+    case 'notepad':   renderNotepad();        break;
   }
 }
 
 /* ── Login flow ─────────────────────────────────────────── */
-let selectedUserId = null;
-
-function renderUserSelectList() {
-  const list = document.getElementById('user-select-list');
-  if (!list) return;
-  list.innerHTML = State.users.map(u => `
-    <button class="demo-user-btn" onclick="selectUser('${u.id}')">
-      <div class="avatar ${u.avClass}" style="width:34px;height:34px;font-size:11px">${u.initials}</div>
-      <div>
-        <div style="font-weight:600;font-size:13px">${u.name}</div>
-        <div style="font-size:11px;color:var(--ink-3)">${u.email}</div>
-      </div>
-      <span class="demo-role" style="text-transform:capitalize">${u.role}</span>
-    </button>`).join('');
-}
-
-function selectUser(userId) {
-  selectedUserId = userId;
-  const user = State.users.find(u => u.id === userId);
-  if (!user) return;
-
-  /* Show selected user */
-  document.getElementById('selected-user-display').innerHTML = `
-    <div class="avatar ${user.avClass}" style="width:34px;height:34px;font-size:11px">${user.initials}</div>
-    <div>
-      <div style="font-weight:600;font-size:13px">${user.name}</div>
-      <div style="font-size:11px;color:var(--ink-3)">${user.email}</div>
-    </div>
-    <span style="margin-left:auto;font-size:10.5px;font-weight:600;color:var(--ink-3);text-transform:capitalize">${user.role}</span>
-  `;
-
-  /* Switch to password step */
-  document.getElementById('login-step-1').style.display = 'none';
-  document.getElementById('login-step-2').style.display = 'block';
-  document.getElementById('login-password').value = '';
-  document.getElementById('login-error').style.display = 'none';
-  setTimeout(() => document.getElementById('login-password').focus(), 100);
-}
-
-function backToUserSelect() {
-  selectedUserId = null;
-  document.getElementById('login-step-1').style.display = 'block';
-  document.getElementById('login-step-2').style.display = 'none';
-  document.getElementById('login-password').value = '';
-  document.getElementById('login-error').style.display = 'none';
-}
 
 function togglePasswordVisibility() {
   const input = document.getElementById('login-password');
@@ -125,34 +79,65 @@ function togglePasswordVisibility() {
   }
 }
 
-async function submitPassword() {
-  if (!selectedUserId) return;
-  const user     = State.users.find(u => u.id === selectedUserId);
-  const entered  = document.getElementById('login-password').value;
-  const errorEl  = document.getElementById('login-error');
-  const btn      = document.querySelector('#login-step-2 .btn-primary');
+async function submitLogin() {
+  const usernameEl = document.getElementById('login-username');
+  const passwordEl = document.getElementById('login-password');
+  const errorEl    = document.getElementById('login-error');
+  const errMsg     = document.getElementById('login-error-msg');
+  const btn        = document.getElementById('login-btn');
 
-  if (!entered) {
-    errorEl.style.display = 'block';
-    errorEl.innerHTML = '<i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i> Please enter your password.';
-    return;
-  }
+  const username = (usernameEl?.value || '').trim().toLowerCase();
+  const password = passwordEl?.value || '';
 
-  /* Check password */
-  if (entered !== user.password) {
-    errorEl.style.display = 'block';
-    errorEl.innerHTML = '<i class="ti ti-alert-circle" style="font-size:13px;vertical-align:-2px"></i> Incorrect password. Please try again.';
-    document.getElementById('login-password').value = '';
-    document.getElementById('login-password').focus();
-    return;
-  }
-
-  /* Password correct — log in */
+  /* Clear previous error */
   errorEl.style.display = 'none';
+
+  if (!username) {
+    errMsg.textContent = 'Please enter your username.';
+    errorEl.style.display = 'block';
+    usernameEl?.focus();
+    return;
+  }
+  if (!password) {
+    errMsg.textContent = 'Please enter your password.';
+    errorEl.style.display = 'block';
+    passwordEl?.focus();
+    return;
+  }
+
+  /* Match username against users (by name, case-insensitive) */
+  const user = State.users.find(u =>
+    u.name.toLowerCase() === username ||
+    (u.email && u.email.toLowerCase() === username)
+  );
+
+  if (!user || user.password !== password) {
+    errMsg.textContent = 'Incorrect username or password.';
+    errorEl.style.display = 'block';
+    passwordEl.value = '';
+    passwordEl.focus();
+    return;
+  }
+
+  /* Correct — sign in */
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Signing in…'; }
-  await loginAs(selectedUserId);
+  await loginAs(user.id);
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Sign in'; }
 }
+
+/* Keep logout reset clean */
+function _resetLoginForm() {
+  const u = document.getElementById('login-username');
+  const p = document.getElementById('login-password');
+  const e = document.getElementById('login-error');
+  if (u) u.value = '';
+  if (p) p.value = '';
+  if (e) e.style.display = 'none';
+}
+
+/* Legacy stubs so any remaining references don't throw */
+function renderUserSelectList() {}
+function backToUserSelect()     {}
 
 async function loginAs(userId) {
   const user = State.users.find(u => u.id === userId);
@@ -187,6 +172,11 @@ async function loginAs(userId) {
 
   showPage('dashboard');
   setTimeout(updateChatBadge, 500);
+
+  /* Auto-generation — runs silently after data has loaded */
+  setTimeout(() => {
+    if (typeof _runAutoGeneration === 'function') _runAutoGeneration();
+  }, 2000);
   _startClock();
   _startAutoSync();
   Sheets.subscribeRealtime(); /* live updates via Supabase real-time */
@@ -234,10 +224,8 @@ function logout() {
   selectedUserId = null;
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';
-  document.getElementById('login-step-1').style.display = 'block';
-  document.getElementById('login-step-2').style.display = 'none';
-  document.getElementById('login-password').value       = '';
-  renderUserSelectList();
+  _resetLoginForm();
+  setTimeout(() => document.getElementById('login-username')?.focus(), 100);
 }
 
 /* ── Mobile sidebar ─────────────────────────────────────── */
@@ -279,9 +267,8 @@ document.addEventListener('keydown', e => {
 
 /* ── Click outside modal / colour picker ────────────────── */
 document.addEventListener('click', e => {
-  if (e.target.classList.contains('modal-overlay')) {
-    e.target.classList.remove('open');
-  }
+  /* Modal overlays no longer close on outside click —
+     use the X button or Cancel to close */
   /* Close stage colour picker if click is outside it */
   const picker = document.getElementById('stage-color-picker');
   if (picker && picker.style.display !== 'none') {
@@ -337,10 +324,24 @@ if ('serviceWorker' in navigator) {
 }
 
 /* ── Init ───────────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   /* Initialise Supabase client */
   Sheets.init();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';
-  renderUserSelectList();
+
+  /* Load users from Supabase so login credentials are up to date.
+     We load ONLY users here — rest of data loads after successful login. */
+  try {
+    if (State.useSheets) {
+      const freshUsers = await Sheets.loadUsers();
+      if (freshUsers && freshUsers.length) State.users = freshUsers;
+    }
+  } catch(e) { /* fall back to demo users */ }
+
+  /* Apply saved theme */
+  _applySettings();
+
+  /* Focus username field */
+  setTimeout(() => document.getElementById('login-username')?.focus(), 100);
 });

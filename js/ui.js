@@ -3,13 +3,32 @@
    ============================================================ */
 
 /* ── Toast ──────────────────────────────────────────────── */
-function toast(msg, type = 'success') {
+function toast(msg, type = 'success', action) {
   const wrap = document.getElementById('toast-wrap');
   const el   = document.createElement('div');
   el.className = `toast ${type}`;
-  el.innerHTML = `<i class="ti ti-${type === 'success' ? 'circle-check' : 'alert-circle'}"></i><span>${msg}</span>`;
+  el.innerHTML = `<i class="ti ti-${type === 'success' ? 'circle-check' : 'alert-circle'}"></i><span>${msg}</span>${
+    action ? `<button class="toast-action-btn" style="margin-left:10px;background:none;border:none;
+      color:inherit;font-weight:700;font-size:12px;cursor:pointer;text-decoration:underline;
+      font-family:inherit;padding:0">${action.label}</button>` : ''}`;
+  if (action) {
+    el.querySelector('.toast-action-btn').addEventListener('click', () => {
+      action.fn();
+      el.classList.add('hiding');
+      setTimeout(() => el.remove(), 200);
+    });
+  }
   wrap.appendChild(el);
   setTimeout(() => { el.classList.add('hiding'); setTimeout(() => el.remove(), 200); }, 3200);
+}
+
+async function quickClose(taskId) {
+  await State.closeTask(taskId, '');
+  refreshCurrentPage();
+  toast('Task marked as done!', 'success', {
+    label: 'Undo',
+    fn: async () => { await State.reopenTask(taskId); refreshCurrentPage(); },
+  });
 }
 
 /* ── HTML escape ────────────────────────────────────────── */
@@ -29,6 +48,62 @@ function _monthLabel(yearMonth) {
   return `${_MONTHS[parseInt(m, 10) - 1]} ${y}`;
 }
 
+/* ── Task title label ────────────────────────────────────────
+   Generates the suffix appended to the task title on generation.
+
+   titleMonthOffset values:
+     0  = empty — no label (default)
+    -1  = previous month / previous quarter
+     2  = this month / this quarter
+     1  = next month (monthly only)
+     3  = month + week number (weekly only)
+   ──────────────────────────────────────────────────────────── */
+function _taskTitleLabel(tp, yearMonth, dueDate) {
+  const v = tp.titleMonthOffset ?? 0;
+  if (v === 0) return ''; /* empty — nothing appended */
+
+  const [y, m] = yearMonth.split('-').map(Number);
+  const MS      = _MONTHS.map(function(n){ return n.slice(0,3); });
+
+  /* ── WEEKLY: Month + Week number ──────────────────────────── */
+  if (tp.recurrence === 'weekly' && v === 3) {
+    if (!dueDate) return _monthLabel(yearMonth);
+    const day     = parseInt((dueDate || '').split('-')[2]) || 1;
+    const weekNum = Math.ceil(day / 7);
+    return `${_MONTHS[m-1]} W${weekNum} ${y}`;
+  }
+
+  /* ── QUARTERLY ─────────────────────────────────────────────── */
+  if (tp.recurrence === 'quarterly') {
+    const qStart   = tp.quarterStartMonth || 1;
+    /* Which quarter index (0–3) does the due month fall in? */
+    const qIdx     = Math.floor(((m - qStart + 12) % 12) / 3);
+    /* Offset in quarters: -1 = prev, 0 already handled above, 2 = this */
+    const qOff     = v === -1 ? -1 : 0; /* only prev or this make sense */
+    const targetQIdx = qIdx + qOff;
+
+    /* Start month of the target quarter (1-based) */
+    const smRaw  = qStart + targetQIdx * 3;
+    const sm     = ((smRaw - 1 + 120) % 12) + 1;
+    const em     = ((sm - 1 + 2)       % 12) + 1;
+
+    /* Year: quarters can cross year boundaries */
+    const totalM  = (y * 12 + (m - 1)) + qOff * 3;
+    const qYear   = Math.floor(totalM / 12);
+    const endYear = em < sm ? qYear + 1 : qYear;
+
+    return `${MS[sm-1]}–${MS[em-1]} ${em < sm ? endYear : qYear}`;
+  }
+
+  /* ── MONTHLY (and fallback) ─────────────────────────────────── */
+  /* -1=prev, 2=this, 1=next */
+  const mOff        = v === -1 ? -1 : v === 1 ? 1 : 0;
+  const totalMonths = y * 12 + (m - 1) + mOff;
+  const newYear     = Math.floor(totalMonths / 12);
+  const newMonth    = (totalMonths % 12 + 12) % 12 + 1;
+  return `${_MONTHS[newMonth - 1]} ${newYear}`;
+}
+
 function fmtDate(d) {
   if (!d) return '—';
   const dt = new Date(d + 'T00:00:00');
@@ -42,7 +117,7 @@ function isOverdue(t) {
 
 /* ── Tag helpers ────────────────────────────────────────── */
 function typeTag(type) {
-  const map = { daily:'Daily', weekly:'Weekly', monthly:'Monthly', oneoff:'One-off' };
+  const map = { daily:'Daily', weekly:'Weekly', monthly:'Monthly', oneoff:'One-off', quarterly:'Quarterly' };
   return `<span class="tag tag-${type}">${map[type] || type}</span>`;
 }
 
@@ -64,6 +139,41 @@ function clientTag(clientId) {
   const c = State.getClient(clientId);
   if (!c) return '';
   return `<span class="tag tag-client" style="color:${c.color};background:${c.bg};border-color:${c.color}22">${c.short}</span>`;
+}
+
+function pipelineTag(pipelineId, stageId) {
+  if (!pipelineId) return '';
+  const pipeline   = State.getPipeline(pipelineId);
+  if (!pipeline) return '';
+  const stages     = State.getStages(pipelineId);
+  const stage      = stageId ? stages.find(s => s.id === stageId) : null;
+  const stageColor = stage?.color || '#6366f1';
+  const stageName  = stage?.name  || '';
+  const stageIdx   = stage ? stages.findIndex(s => s.id === stageId) + 1 : 0;
+  const stageTotal = stages.length;
+
+  /* Full info in tooltip */
+  const tooltip = pipeline.name + (stageName ? ' · ' + stageName : '') + (stageIdx ? ' (' + stageIdx + '/' + stageTotal + ')' : '');
+
+  /* Stage dots — filled up to current stage */
+  const dots = stageTotal > 0
+    ? stages.map(function(s, i) {
+        const filled = i < stageIdx;
+        return '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 1px;'
+          + 'background:' + (filled ? stageColor : stageColor + '30') + '"></span>';
+      }).join('')
+    : '';
+
+  /* Truncate pipeline name to ~12 chars */
+  const shortName = pipeline.name.length > 12 ? pipeline.name.slice(0,11) + '…' : pipeline.name;
+
+  return `<span class="tag tag-pipeline" title="${esc(tooltip)}"
+    style="border-color:${stageColor}44;background:${stageColor}12;gap:5px">
+    <i class="ti ti-layout-kanban" style="font-size:9px;color:${stageColor}"></i>
+    <span style="color:${stageColor};font-weight:600;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shortName)}</span>
+    <span style="display:inline-flex;align-items:center;gap:1px">${dots}</span>
+    <span style="color:${stageColor};font-family:var(--mono);font-size:9px;opacity:0.8">${stageIdx}/${stageTotal}</span>
+  </span>`;
 }
 
 function assigneeChip(userId) {
@@ -97,8 +207,8 @@ function renderTaskCard(task) {
         <i class="ti ti-check" style="font-size:9px"></i>
       </div>` : ''}
       <div class="task-check ${done ? 'checked' : ''}"
-           onclick="event.stopPropagation();${done ? '' : canClose ? `quickClose('${task.id}')` : ''}"
-           title="${done ? 'Completed' : canClose ? 'Mark done' : 'Read only'}">
+           onclick="event.stopPropagation();${done ? canClose ? `reopenTask('${task.id}')` : '' : canClose ? `quickClose('${task.id}')` : ''}"
+           title="${done ? canClose ? 'Click to reopen' : 'Completed' : canClose ? 'Mark done' : 'Read only'}">
         ${done ? '<i class="ti ti-check" style="font-size:9px"></i>' : ''}
       </div>
       <div class="task-title">${esc(task.title)}</div>
@@ -113,12 +223,18 @@ function renderTaskCard(task) {
         ${typeTag(task.type)}
         ${priorityTag(task.priority)}
         ${statusTag(task.status, task.dueDate)}
+        ${pipelineTag(task.pipelineId, task.pipelineStageId)}
         ${hasSubtasks ? `<span class="tc-st-badge ${stDone===stTotal?'complete':''}">✓ ${stDone}/${stTotal}</span>` : ''}
         ${isBlocked ? `<span class="tc-st-badge" style="background:var(--bg);color:var(--ink-3);border:1px solid var(--border-md)">
           <i class="ti ti-lock" style="font-size:9px"></i> Blocked
         </span>` : ''}
       </div>
       <div class="tc-right">
+        ${task.startDate && task.startDate !== task.dueDate ? `
+          <span style="font-size:10.5px;color:var(--ink-3)">
+            <i class="ti ti-player-play" style="font-size:9px;vertical-align:-1px"></i>
+            ${fmtDate(task.startDate)}
+          </span>` : ''}
         <span class="task-due ${over ? 'late' : ''}">
           <i class="ti ti-calendar-event" style="font-size:10px;vertical-align:-1px"></i>
           ${fmtDate(task.dueDate)}
@@ -139,7 +255,11 @@ function renderTaskCard(task) {
 let _chatOpen      = false;
 let _chatChannel   = 'team';
 let _chatPollTimer = null;
-let _chatLastRead  = {}; /* { channelId: lastMessageId } — per session */
+/* Load persisted read state from localStorage — survives page reloads */
+let _chatLastRead = (function() {
+  try { return JSON.parse(localStorage.getItem('ofiz_chat_read') || '{}'); }
+  catch(e) { return {}; }
+})();
 
 /* ── State vars ─────────────────────────────────────────── */
 let editUserId          = null;
@@ -185,13 +305,28 @@ function renderTaskList(tasks, containerId) {
 
 /* ── Dashboard ──────────────────────────────────────────── */
 function renderDashboard() {
-  const s = State.dashStats();
-  document.getElementById('stat-total').textContent   = s.total;
-  document.getElementById('stat-today').textContent   = s.dueToday;
-  document.getElementById('stat-overdue').textContent = s.overdue;
-  document.getElementById('stat-done').textContent    = s.done;
+  const s     = State.dashStats();
+  const today = new Date().toISOString().slice(0,10);
 
-  const today    = new Date().toISOString().slice(0,10);
+  /* Stat cards */
+  document.getElementById('stat-active').textContent    = s.active;
+  document.getElementById('stat-today').textContent     = s.dueToday;
+  document.getElementById('stat-week').textContent      = s.dueThisWeek;
+  document.getElementById('stat-overdue').textContent   = s.overdue;
+  const totalDoneEl = document.getElementById('stat-total-done');
+  if (totalDoneEl) totalDoneEl.textContent = (s.done ?? 0) + ' / ' + (s.totalCount ?? s.total ?? 0);
+
+  /* All 8 dashboard sections */
+  _renderDashGreeting();
+  _renderDashTimeline();
+  _renderDashClientHealth();
+  _renderDashReminders();
+  _renderDashExpDocs();
+  renderWorkload();
+  renderCompletionChart();
+  _renderDashActivity();
+
+  /* Priority tasks */
   const priority = State.filterTasks()
     .filter(t => t.status !== 'done')
     .sort((a,b) => {
@@ -201,42 +336,222 @@ function renderDashboard() {
       return (pw[a.priority]||1) - (pw[b.priority]||1);
     })
     .slice(0, 8);
-
-  /* Render priority tasks as table */
   _renderDashboardTaskTable(priority);
 
+  /* Sidebar badges */
   const od = State.overdueTasks().length;
   document.querySelectorAll('.badge-overdue').forEach(el => {
-    el.textContent  = od || '';
+    el.textContent = od || '';
     el.style.display = od ? '' : 'none';
   });
-
-  /* Pipeline overdue badge */
-  const today2 = new Date().toISOString().slice(0,10);
-  const pipeOD = State.tasks.filter(t => t.pipelineId && t.status !== 'done' && t.dueDate < today2).length;
+  const pipeOD = State.tasks.filter(t => t.pipelineId && t.status !== 'done' && t.dueDate < today).length;
   const pb = document.getElementById('badge-pipelines');
   if (pb) { pb.textContent = pipeOD ? String(pipeOD) : '!'; pb.style.display = pipeOD ? '' : 'none'; }
 
-  renderCompletionChart();
-  renderWorkload();
-
-  /* Reminders badge in sidebar */
-  const todayR = new Date().toISOString().slice(0,10);
-  const myIdR   = State.user?.id;
-  const isAdminR = State.user?.role === 'admin';
+  const myId    = State.user?.id;
+  const isAdmin = State.user?.role === 'admin';
   const urgentRem = State.reminders.filter(r => {
     if (!r.active || r.paidAt) return false;
-    if (!isAdminR && r.assignedUserId !== myIdR) return false;
-    const days = Math.ceil((new Date(r.eventDate) - new Date(todayR)) / 86400000);
-    return days <= 7;
+    if (!isAdmin && r.assignedUserId !== myId) return false;
+    return Math.ceil((new Date(r.eventDate) - new Date(today)) / 86400000) <= 7;
   }).length;
   const rb = document.getElementById('badge-reminders');
   if (rb) { rb.textContent = urgentRem||''; rb.style.display = urgentRem ? '' : 'none'; }
 
-  /* Documents expiry badge in sidebar */
   const expDocs = State.expiringDocuments(30).length;
   const db = document.getElementById('badge-documents');
   if (db) { db.textContent = expDocs || ''; db.style.display = expDocs ? '' : 'none'; }
+}
+
+/* ── 1. Good morning greeting ───────────────────────────── */
+function _renderDashGreeting() {
+  const el = document.getElementById('dash-greeting');
+  if (!el) return;
+  const h    = new Date().getHours();
+  const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const name  = State.user?.name?.split(' ')[0] || '';
+  const today = new Date().toISOString().slice(0,10);
+
+  const overdueCount = State.overdueTasks().length;
+  const todayCount   = State.tasks.filter(t => t.status !== 'done' && t.dueDate === today).length;
+
+  let sub = '';
+  if (overdueCount > 0 && todayCount > 0)
+    sub = `You have <strong>${todayCount}</strong> task${todayCount!==1?'s':''} due today and <strong style="color:var(--red)">${overdueCount}</strong> overdue.`;
+  else if (overdueCount > 0)
+    sub = `You have <strong style="color:var(--red)">${overdueCount}</strong> overdue task${overdueCount!==1?'s':''}.`;
+  else if (todayCount > 0)
+    sub = `You have <strong>${todayCount}</strong> task${todayCount!==1?'s':''} due today.`;
+  else
+    sub = `All caught up — no tasks due today. 🎉`;
+
+  el.innerHTML = `<div class="dash-greeting-text">${greet}, ${esc(name)}.</div>
+    <div class="dash-greeting-sub">${sub}</div>`;
+}
+
+/* ── 2. Upcoming 7-day timeline ────────────────────────── */
+function _renderDashTimeline() {
+  const el = document.getElementById('dash-timeline');
+  if (!el) return;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0,10);
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const days = Array.from({ length: 7 }, function(_, i) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const ds = d.toISOString().slice(0,10);
+    const tasks = State.tasks.filter(function(t) {
+      return t.status !== 'done' && t.dueDate === ds;
+    });
+    return {
+      date:     ds,
+      label:    i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : DAY_NAMES[d.getDay()],
+      dateNum:  d.getDate(),
+      tasks:    tasks,
+      hasOverdue: tasks.some(function(t){ return t.dueDate < todayStr; }),
+    };
+  });
+
+  el.innerHTML = days.map(function(d) {
+    const count   = d.tasks.length;
+    const isEmpty = count === 0;
+    const isToday = d.label === 'Today';
+    return '<div class="dash-day' + (isToday ? ' dash-day-today' : '') + (isEmpty ? ' dash-day-empty' : '') + '"'
+      + ' onclick="' + (count > 0 ? 'showPage(\'tasks\',document.querySelector(\'[data-page=tasks]\'));setTimeout(function(){setFilter(\'status\',\'all\',null);},100)' : '') + '">'
+      + '<div class="dash-day-label">' + d.label + '</div>'
+      + '<div class="dash-day-num">' + d.dateNum + '</div>'
+      + '<div class="dash-day-count' + (count > 0 ? ' has-tasks' : '') + '">' + (count > 0 ? count : '·') + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+/* ── 3. Client health summary ───────────────────────────── */
+function _renderDashClientHealth() {
+  const el = document.getElementById('dash-client-health');
+  if (!el) return;
+  const scores = State.clients.filter(function(c){ return c.active; }).map(function(c) {
+    return { c: c, hs: State.clientHealthScore(c.id) };
+  });
+  const groups = { D: [], C: [], B: [], A: [] };
+  scores.forEach(function(x){ groups[x.hs.score]?.push(x); });
+
+  const rows = [
+    { score:'D', label:'Critical',        color:'var(--red)',    bg:'var(--red-light)'    },
+    { score:'C', label:'Needs attention', color:'var(--amber)',  bg:'var(--amber-light)'  },
+    { score:'B', label:'Good',            color:'var(--blue)',   bg:'var(--blue-light)'   },
+    { score:'A', label:'Excellent',       color:'var(--green)',  bg:'var(--green-light)'  },
+  ];
+
+  el.innerHTML = rows.map(function(r) {
+    const clients = groups[r.score] || [];
+    if (!clients.length) return '';
+    return '<div class="dash-health-row" onclick="showPage(\'clients\',document.querySelector(\'[data-page=clients]\'))">'
+      + '<div class="dash-health-badge" style="background:' + r.bg + ';color:' + r.color + '">' + r.score + '</div>'
+      + '<div class="dash-health-label">' + r.label + '</div>'
+      + '<div class="dash-health-clients">'
+      + clients.slice(0,4).map(function(x){
+          return '<span class="tag tag-client" style="color:' + x.c.color + ';background:' + x.c.bg + '">' + x.c.short + '</span>';
+        }).join('')
+      + (clients.length > 4 ? '<span style="font-size:11px;color:var(--ink-3)">+' + (clients.length-4) + '</span>' : '')
+      + '</div>'
+      + '<div class="dash-health-count" style="color:' + r.color + '">' + clients.length + '</div>'
+      + '</div>';
+  }).join('') || '<div class="dash-empty-sm">No client data yet</div>';
+}
+
+/* ── 4. Reminders due soon ──────────────────────────────── */
+function _renderDashReminders() {
+  const el = document.getElementById('dash-reminders');
+  if (!el) return;
+  const today   = new Date().toISOString().slice(0,10);
+  const soon    = new Date(Date.now() + 14 * 86400000).toISOString().slice(0,10);
+  const myId    = State.user?.id;
+  const isAdmin = State.user?.role === 'admin';
+
+  const rems = State.reminders.filter(function(r) {
+    if (!r.active || r.paidAt) return false;
+    if (!isAdmin && r.assignedUserId !== myId) return false;
+    return r.eventDate >= today && r.eventDate <= soon;
+  }).sort(function(a,b){ return a.eventDate.localeCompare(b.eventDate); }).slice(0,5);
+
+  if (!rems.length) {
+    el.innerHTML = '<div class="dash-empty-sm"><i class="ti ti-bell-off"></i> No reminders due in 14 days</div>';
+    return;
+  }
+
+  el.innerHTML = rems.map(function(r) {
+    const days    = Math.ceil((new Date(r.eventDate) - new Date(today)) / 86400000);
+    const client  = State.getClient(r.clientId);
+    const urgent  = days <= 3;
+    return '<div class="dash-rem-row" onclick="showPage(\'reminders\',document.querySelector(\'[data-page=reminders]\'))">'
+      + '<div class="dash-rem-info">'
+      + '<div class="dash-rem-title">' + esc(r.title) + '</div>'
+      + (client ? '<div class="dash-rem-client">' + esc(client.name) + '</div>' : '')
+      + '</div>'
+      + '<div class="dash-rem-days' + (urgent ? ' urgent' : '') + '">'
+      + (days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days + 'd')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+/* ── 5. Expiring documents ──────────────────────────────── */
+function _renderDashExpDocs() {
+  const el = document.getElementById('dash-exp-docs');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0,10);
+  const docs  = State.expiringDocuments(60).slice(0,5);
+
+  if (!docs.length) {
+    el.innerHTML = '<div class="dash-empty-sm"><i class="ti ti-circle-check"></i> No documents expiring soon</div>';
+    return;
+  }
+
+  el.innerHTML = docs.map(function(d) {
+    const client  = State.getClient(d.clientId);
+    const days    = Math.ceil((new Date(d.expiryDate) - new Date(today)) / 86400000);
+    const expired = days < 0;
+    const urgent  = days >= 0 && days <= 14;
+    return '<div class="dash-doc-row" onclick="showPage(\'documents\',document.querySelector(\'[data-page=documents]\'))">'
+      + '<div class="dash-doc-info">'
+      + '<div class="dash-doc-type">' + esc(d.type) + '</div>'
+      + (client ? '<div class="dash-doc-client">' + esc(client.name) + '</div>' : '')
+      + '</div>'
+      + '<div class="dash-doc-days' + (expired ? ' expired' : urgent ? ' urgent' : '') + '">'
+      + (expired ? 'Expired' : days === 0 ? 'Today' : days + 'd')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+/* ── 8. Recent activity feed ────────────────────────────── */
+function _renderDashActivity() {
+  const el = document.getElementById('dash-activity');
+  if (!el) return;
+  const log = (State.activityLog || []).slice().reverse().slice(0, 8);
+
+  if (!log.length) {
+    el.innerHTML = '<div class="dash-empty-sm">No recent activity</div>';
+    return;
+  }
+
+  el.innerHTML = '<div class="dash-activity-list">'
+    + log.map(function(a) {
+        const user   = State.getUser(a.userId);
+        const task   = State.getTask(a.taskId);
+        return '<div class="dash-activity-row">'
+          + '<div class="avatar ' + (user?.avClass||'av-admin') + '" style="width:20px;height:20px;font-size:7px;flex-shrink:0">'
+          + (user?.initials||'?') + '</div>'
+          + '<div class="dash-act-text">'
+          + '<span class="dash-act-name">' + esc(user?.name||'?') + '</span> '
+          + esc(a.text||'')
+          + (task ? ' <span style="color:var(--ink-3)">· ' + esc(task.title) + '</span>' : '')
+          + '</div>'
+          + '<div class="dash-act-time">' + (a.createdAt||'').slice(-5) + '</div>'
+          + '</div>';
+      }).join('')
+    + '</div>';
 }
 
 /* ── Dashboard task table ───────────────────────────────── */
@@ -269,7 +584,10 @@ function _renderDashboardTaskTable(tasks) {
           onclick="event.stopPropagation();${done?'':canClose?`quickClose('${t.id}')`:''}" >
           ${done?'<i class="ti ti-check" style="font-size:8px"></i>':''}
         </div></td>
-        <td class="tt-title">${esc(t.title)}</td>
+        <td class="tt-title">
+          ${esc(t.title)}
+          ${t.pipelineId ? pipelineTag(t.pipelineId, t.pipelineStageId) : ''}
+        </td>
         <td>${client?`<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>`:'—'}</td>
         <td style="font-family:var(--mono);font-size:12px;color:${over?'var(--red)':'var(--ink-3)'};white-space:nowrap">${t.dueDate?fmtDate(t.dueDate):'—'}</td>
         <td>${_ttStatusBadge(t, today)}</td>
@@ -331,6 +649,29 @@ function _drawChart(canvas) {
   /* Baseline */
   ctx.fillStyle = '#e8e5df';
   ctx.fillRect(pad, baseY, W - pad * 2, 1);
+
+  /* Target / average line */
+  const totalCompleted = data.reduce((s, d) => s + d.count, 0);
+  const withTasks = data.filter(d => d.count > 0).length;
+  if (withTasks > 1) {
+    const avg    = totalCompleted / withTasks;
+    const avgH   = Math.round(avg / maxVal * maxH);
+    const avgY   = baseY - avgH;
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = '#81D8D0';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pad, avgY);
+    ctx.lineTo(W - pad, avgY);
+    ctx.stroke();
+    ctx.restore();
+    /* Label */
+    ctx.font      = '600 9px "Geist Mono",monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#81D8D0';
+    ctx.fillText('avg ' + Math.round(avg), W - pad - 42, avgY - 4);
+  }
 
   data.forEach((d, i) => {
     const cx   = pad + gap * i + gap / 2;
@@ -443,13 +784,20 @@ function _ttStatusBadge(task, today) {
 function _ttProgressCell(task) {
   const subs  = task.subtasks || [];
   const total = subs.length;
-  if (!total) return `<span style="color:var(--ink-4);font-size:12px">—</span>`;
-  const done = subs.filter(s => s.done).length;
-  const pct  = Math.round(done / total * 100);
+  const pip   = task.pipelineId ? pipelineTag(task.pipelineId, task.pipelineStageId) : '';
+
+  if (!total && !pip) return `<span style="color:var(--ink-4);font-size:12px">—</span>`;
+
+  const done  = subs.filter(s => s.done).length;
+  const pct   = total ? Math.round(done / total * 100) : 0;
   const color = pct === 100 ? 'var(--accent)' : pct > 50 ? 'var(--blue)' : 'var(--amber)';
-  return `<div class="tt-progress-wrap">
-    <div class="tt-progress-bar"><div class="tt-progress-fill" style="width:${pct}%;background:${color}"></div></div>
-    <span>${done}/${total}</span>
+
+  return `<div style="display:flex;flex-direction:column;gap:4px">
+    ${pip}
+    ${total ? `<div class="tt-progress-wrap">
+      <div class="tt-progress-bar"><div class="tt-progress-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span>${done}/${total}</span>
+    </div>` : ''}
   </div>`;
 }
 
@@ -618,18 +966,20 @@ function setFilter(key, val, el) {
 let _dragClientId    = null;
 let _activeClientTag = null;
 let _showArchived    = false;
-let _clientSort      = 'manual'; /* 'manual' | 'az' | 'tasks' */
+let _clientSort      = sessionStorage.getItem('ofiz_client_sort') || 'manual';
 
 function setClientSort(sort) {
   _clientSort = sort;
+  sessionStorage.setItem('ofiz_client_sort', sort);
   /* Update button states */
   ['manual','az','tasks'].forEach(s => {
     const btn = document.getElementById(`csort-${s}`);
     if (!btn) return;
     const on = s === sort;
-    btn.style.background  = on ? 'var(--ink)' : '';
-    btn.style.color       = on ? 'var(--bg-sidebar)' : '';
-    btn.style.borderColor = on ? 'var(--ink)' : '';
+    btn.style.background  = on ? 'linear-gradient(135deg,#81D8D0,#3db5ad)' : '';
+    btn.style.color       = on ? '#1a2e2c' : '';
+    btn.style.borderColor = on ? 'transparent' : '';
+    btn.style.fontWeight  = on ? '700' : '';
   });
   renderClients();
 }
@@ -661,22 +1011,61 @@ function renderClientTagFilter() {
   const tags = State.allClientTags();
   if (!tags.length) { bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
-  chips.innerHTML = tags.map(t => `
-    <button class="client-tag" onclick="setClientTagFilter('${esc(t)}')"
-      style="${_activeClientTag===t?'background:var(--ink);color:var(--bg-sidebar);border-color:var(--ink)':''}">
-      ${esc(t)}
-    </button>`).join('');
+
+  /* Build a colour palette per tag from the clients that use it */
+  const TAG_PALETTE = [
+    { bg:'#dbeafe', color:'#1d4ed8', border:'#93c5fd' }, /* blue    */
+    { bg:'#d1fae5', color:'#065f46', border:'#6ee7b7' }, /* green   */
+    { bg:'#fce7f3', color:'#9d174d', border:'#f9a8d4' }, /* pink    */
+    { bg:'#ede9fe', color:'#5b21b6', border:'#c4b5fd' }, /* purple  */
+    { bg:'#fef3c7', color:'#92400e', border:'#fcd34d' }, /* amber   */
+    { bg:'#fee2e2', color:'#991b1b', border:'#fca5a5' }, /* red     */
+    { bg:'#ccfbf1', color:'#134e4a', border:'#6ee7b7' }, /* teal    */
+    { bg:'#f0fdf4', color:'#166534', border:'#86efac' }, /* lime    */
+  ];
+
+  chips.innerHTML = tags.map((t, idx) => {
+    const isOn = _activeClientTag === t;
+    const pal  = TAG_PALETTE[idx % TAG_PALETTE.length];
+    const style = isOn
+      ? `background:${pal.bg};color:${pal.color};border-color:${pal.border};font-weight:700`
+      : `background:var(--bg-card);color:var(--ink-3);border-color:var(--border)`;
+    return `<button class="filter-chip tag-filter-chip" style="${style}"
+      onclick="setClientTagFilter('${esc(t)}')">${esc(t)}</button>`;
+  }).join('');
 }
 
 function renderClients() {
   const el = document.getElementById('client-grid');
   if (!el) return;
 
+  /* Sync sort buttons to persisted sort state */
+  ['manual','az','tasks'].forEach(s => {
+    const btn = document.getElementById(`csort-${s}`);
+    if (!btn) return;
+    const on = s === _clientSort;
+    btn.style.background  = on ? 'linear-gradient(135deg,#81D8D0,#3db5ad)' : '';
+    btn.style.color       = on ? '#1a2e2c' : '';
+    btn.style.borderColor = on ? 'transparent' : '';
+    btn.style.fontWeight  = on ? '700' : '';
+  });
+
   renderClientTagFilter();
 
   const archivedCount = State.clients.filter(c => !c.active).length;
   const archBtn = document.getElementById('archived-toggle-btn');
   const archLbl = document.getElementById('archived-toggle-label');
+
+  /* If no archived clients exist but we're in archived view, auto-reset */
+  if (archivedCount === 0 && _showArchived) {
+    _showArchived = false;
+    if (archBtn) {
+      archBtn.style.background  = '';
+      archBtn.style.color       = '';
+      archBtn.style.borderColor = '';
+    }
+  }
+
   if (archBtn) {
     archBtn.style.display = archivedCount > 0 ? '' : 'none';
     if (archLbl && !_showArchived) archLbl.textContent = `Show archived (${archivedCount})`;
@@ -821,15 +1210,21 @@ function openNewClientModal() {
   document.getElementById('cf-short').value = '';
   document.getElementById('cf-color').value = '#4f8ef7';
   document.getElementById('cf-tags').value  = '';
+  const tlEl = document.getElementById('cf-trade-license');
+  const tlExpEl = document.getElementById('cf-tl-expiry');
+  if (tlEl) tlEl.value = '';
+  if (tlExpEl) tlExpEl.value = '';
   document.getElementById('client-form-modal').classList.add('open');
 }
 
 function closeClientForm() {
   editClientSettingsId = null;
   const modal = document.getElementById('client-form-modal');
-  modal.querySelector('.modal-title').textContent = 'New client';
-  modal.querySelector('.btn-primary').innerHTML   = '<i class="ti ti-circle-check"></i> Add client';
-  modal.classList.remove('open');
+  if (modal) {
+    modal.querySelector('.modal-title').textContent = 'New client';
+    modal.querySelector('.btn-primary').innerHTML   = '<i class="ti ti-circle-check"></i> Add client';
+  }
+  _closeModal('client-form-modal');
 }
 
 function hexToRgba(hex, alpha) {
@@ -839,11 +1234,40 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+/* ── Sync trade licence to Documents table ──────────────────
+   Called after any client save that includes tradeLicenseExpiry.
+   Finds or creates the "Trade License" doc for the client,
+   then sets number + expiryDate from the client card values.   */
+async function _syncTradeLicenseDoc(clientId, licenseNo, expiryDate) {
+  if (!clientId) return;
+  const existing = State.documents.find(
+    d => d.clientId === clientId && d.type === 'Trade License'
+  );
+  if (existing) {
+    /* Update the existing document */
+    await State.updateDocument(existing.id, {
+      number:     licenseNo  || existing.number,
+      expiryDate: expiryDate || existing.expiryDate,
+    });
+  } else if (expiryDate) {
+    /* Only create if there is actually an expiry date to store */
+    await State.addDocument({
+      clientId,
+      type:       'Trade License',
+      number:     licenseNo || '',
+      expiryDate: expiryDate,
+      notes:      'Auto-created from client card',
+    });
+  }
+}
+
 async function submitClientForm() {
   const name  = document.getElementById('cf-name').value.trim();
   const short = document.getElementById('cf-short').value.trim().toUpperCase();
   const color = document.getElementById('cf-color').value;
-  const tags  = (document.getElementById('cf-tags').value||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const tags           = (document.getElementById('cf-tags').value||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const tradeLicense   = (document.getElementById('cf-trade-license')?.value || '').trim();
+  const tlExpiry       = document.getElementById('cf-tl-expiry')?.value || '';
 
   if (!name || !short) {
     toast('Please fill in name and short code', 'error');
@@ -862,7 +1286,8 @@ async function submitClientForm() {
   const bg = hexToRgba(color, 0.12);
 
   if (editClientSettingsId) {
-    await State.updateClient(editClientSettingsId, { name, short, color, bg, tags });
+    await State.updateClient(editClientSettingsId, { name, short, color, bg, tags, tradeLicense, tradeLicenseExpiry: tlExpiry });
+    await _syncTradeLicenseDoc(editClientSettingsId, tradeLicense, tlExpiry);
     if (saveBtn) { saveBtn.disabled = false; }
     closeClientForm();
     renderSettingsClients();
@@ -870,11 +1295,12 @@ async function submitClientForm() {
     renderClients();
     toast('Client updated!');
   } else {
-    const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true, tags, sortOrder: State.clients.length };
+    const newClient = { id:'c' + Date.now(), name, short, color, bg, active:true, tags, tradeLicense, tradeLicenseExpiry: tlExpiry, sortOrder: State.clients.length };
     State.clients.push(newClient);
     if (State.useSheets) {
       await Sheets.addClient(newClient); /* Supabase insert */
     }
+    await _syncTradeLicenseDoc(newClient.id, tradeLicense, tlExpiry);
     if (saveBtn) { saveBtn.disabled = false; }
     closeClientForm();
     populateFormDropdowns();
@@ -905,61 +1331,133 @@ function renderUsers() {
 }
 
 /* ── Templates page ─────────────────────────────────────── */
+let _tplFilter       = 'all';   /* 'all' | 'daily' | 'weekly' | 'monthly' */
+let _tplStatusFilter = 'all';   /* 'all' | 'active' | 'paused' */
+
+function setTplFilter(val, el) {
+  _tplFilter = val;
+  document.querySelectorAll('[data-tpl-filter]').forEach(b => b.classList.toggle('on', b.dataset.tplFilter === val));
+  renderTemplates();
+}
+
+function setTplStatusFilter(val, el) {
+  _tplStatusFilter = val;
+  document.querySelectorAll('[data-tpl-status]').forEach(b => b.classList.toggle('on', b.dataset.tplStatus === val));
+  renderTemplates();
+}
+
 function renderTemplates() {
   /* Set default month on the generate bar */
   const tgMonth = document.getElementById('tg-month');
-  if (tgMonth && !tgMonth.value) {
-    tgMonth.value = new Date().toISOString().slice(0, 7);
+  if (tgMonth && !tgMonth.value) tgMonth.value = new Date().toISOString().slice(0, 7);
+
+  /* Populate client filter dropdown */
+  const clientSel = document.getElementById('tpl-client-filter');
+  if (clientSel && clientSel.options.length <= 1) {
+    State.clients.filter(c => c.active).sort((a,b) => a.name.localeCompare(b.name)).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name;
+      clientSel.appendChild(opt);
+    });
   }
+
   const el = document.getElementById('template-list');
   if (!el) return;
-  if (!State.templates.length) {
-    el.innerHTML = `<div class="empty-state"><i class="ti ti-repeat"></i><p>No recurring templates yet</p></div>`;
+
+  const clientFilter = clientSel?.value || 'all';
+  const isAdmin = State.user?.role === 'admin';
+
+  let templates = State.templates.slice();
+  if (clientFilter !== 'all')   templates = templates.filter(t => t.clientId === clientFilter);
+  if (_tplFilter  !== 'all')    templates = templates.filter(t => t.recurrence === _tplFilter);
+  if (_tplStatusFilter === 'active') templates = templates.filter(t =>  t.active);
+  if (_tplStatusFilter === 'paused') templates = templates.filter(t => !t.active);
+
+  const sortVal = document.getElementById('tpl-sort')?.value || 'default';
+  const recOrder = { daily: 0, weekly: 1, monthly: 2 };
+  if (sortVal === 'client') {
+    templates.sort((a,b) => {
+      const ca = State.getClient(a.clientId)?.name || '';
+      const cb = State.getClient(b.clientId)?.name || '';
+      return ca.localeCompare(cb);
+    });
+  } else if (sortVal === 'title') {
+    templates.sort((a,b) => a.title.localeCompare(b.title));
+  } else if (sortVal === 'recurrence') {
+    templates.sort((a,b) => (recOrder[a.recurrence]??9) - (recOrder[b.recurrence]??9));
+  }
+
+  if (!templates.length) {
+    el.innerHTML = '<div class="empty-state"><i class="ti ti-repeat"></i><p>No templates match the filters</p></div>';
     return;
   }
-  const isAdmin = State.user?.role === 'admin';
-  el.innerHTML = State.templates.map(tp => {
-    const client   = State.getClient(tp.clientId);
-    const recLabel = {
-      daily:   'Every day',
-      weekly:  `Every ${tp.dayOfWeek || 'Mon'}`,
-      monthly: tp.dayOfMonth ? `Day ${tp.dayOfMonth} of each month` : 'Monthly',
-    };
-    return `
-    <div class="task-card" style="cursor:default">
-      <div class="tc-top">
-        <div style="color:var(--accent);flex-shrink:0;font-size:15px;
-          background:var(--accent-light);border-radius:var(--radius-sm);
-          width:28px;height:28px;display:flex;align-items:center;justify-content:center">
-          <i class="ti ti-repeat"></i>
-        </div>
-        <div class="task-title">${tp.title}</div>
-        ${assigneeChip(tp.assigneeId)}
-      </div>
-      <div class="tc-bottom">
-        <div class="task-meta">
-          ${client ? `<span class="tag tag-client" style="color:${client.color};background:${client.bg}">${client.short}</span>` : ''}
-          <span class="tag tag-${tp.recurrence}">${tp.recurrence.charAt(0).toUpperCase()+tp.recurrence.slice(1)}</span>
-          <span style="font-size:11px;color:var(--ink-3)">${recLabel[tp.recurrence] || ''}</span>
-        </div>
-        <div class="tc-right">
-          <span style="font-size:10.5px;padding:2px 9px;border-radius:20px;font-weight:600;flex-shrink:0;
-            ${tp.active
-              ? 'background:var(--green-light);color:var(--green)'
-              : 'background:var(--bg);color:var(--ink-3);border:1px solid var(--border-md)'}">
-            ${tp.active ? 'Active' : 'Paused'}
-          </span>
-          ${isAdmin ? `
-          <button class="btn btn-ghost btn-sm" onclick="openEditTemplateModal('${tp.id}')">
-            <i class="ti ti-edit"></i>
-          </button>
-          <button class="btn btn-danger btn-sm" onclick="confirmDeleteTemplate('${tp.id}')">
-            <i class="ti ti-trash"></i>
-          </button>` : ''}
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+
+  const recLabel = function(tp) {
+    if (tp.recurrence === 'daily')     return 'Every day';
+    if (tp.recurrence === 'weekly')    return 'Every ' + (tp.dayOfWeek || 'Mon');
+    if (tp.recurrence === 'monthly')   return tp.dayOfMonth ? 'Day ' + tp.dayOfMonth + ' monthly' : 'Monthly';
+    if (tp.recurrence === 'quarterly') return _quarterLabel(tp.quarterStartMonth) + (tp.dayOfMonth ? ' · Day ' + tp.dayOfMonth : '');
+    return tp.recurrence;
+  };
+
+  const recIcon = { daily:'ti-sun', weekly:'ti-calendar-week', monthly:'ti-calendar-month', quarterly:'ti-calendar-repeat' };
+  const recColor = { daily:'var(--amber)', weekly:'var(--blue)', monthly:'var(--accent)' };
+
+  el.innerHTML =
+    '<div class="tpl-table">'
+    + '<div class="tpl-header">'
+    +   '<div class="tpl-col-name">Template</div>'
+    +   '<div class="tpl-col-client">Client</div>'
+    +   '<div class="tpl-col-rec">Recurrence</div>'
+    +   '<div class="tpl-col-sched">Schedule</div>'
+    +   '<div class="tpl-col-assign">Assigned to</div>'
+    +   '<div class="tpl-col-status">Status</div>'
+    +   '<div class="tpl-col-actions"></div>'
+    + '</div>'
+    + templates.map(function(tp) {
+        const client   = State.getClient(tp.clientId);
+        const assignee = State.getUser(tp.assigneeId);
+        const icon     = recIcon[tp.recurrence]  || 'ti-repeat';
+        const color    = recColor[tp.recurrence] || 'var(--ink-3)';
+        return '<div class="tpl-row">'
+          +   '<div class="tpl-col-name">'
+          +     '<div class="tpl-icon" style="background:' + color + '22;color:' + color + '">'
+          +       '<i class="ti ' + icon + '"></i>'
+          +     '</div>'
+          +     '<span class="tpl-title">' + esc(tp.title) + '</span>'
+          +   '</div>'
+          +   '<div class="tpl-col-client">'
+          +     (client
+                ? '<span class="tag tag-client" style="color:' + client.color + ';background:' + client.bg + '">'
+                  + esc(client.name) + '</span>'
+                : '<span style="color:var(--ink-4)">—</span>')
+          +   '</div>'
+          +   '<div class="tpl-col-rec">'
+          +     '<span class="tag tag-' + tp.recurrence + '">'
+          +       tp.recurrence.charAt(0).toUpperCase() + tp.recurrence.slice(1)
+          +     '</span>'
+          +   '</div>'
+          +   '<div class="tpl-col-sched" style="font-size:11.5px;color:var(--ink-3)">' + recLabel(tp) + '</div>'
+          +   '<div class="tpl-col-assign">' + assigneeChip(tp.assigneeId) + '</div>'
+          +   '<div class="tpl-col-status">'
+          +     '<span class="tpl-status-badge ' + (tp.active ? 'tpl-active' : 'tpl-paused') + '">'
+          +       (tp.active ? 'Active' : 'Paused')
+          +     '</span>'
+          +   '</div>'
+          +   '<div class="tpl-col-actions">'
+          +     (isAdmin
+                ? '<button class="btn btn-ghost btn-sm" title="' + (tp.active ? 'Pause template' : 'Activate template') + '"'
+                  + ' onclick="toggleTemplateActive(\'' + tp.id + '\')">'
+                  + '<i class="ti ' + (tp.active ? 'ti-player-pause' : 'ti-player-play') + '"></i></button>'
+                  + '<button class="btn btn-ghost btn-sm" onclick="openEditTemplateModal(\'' + tp.id + '\')">'
+                  + '<i class="ti ti-edit"></i></button>'
+                  + '<button class="btn btn-danger btn-sm" onclick="confirmDeleteTemplate(\'' + tp.id + '\')">'
+                  + '<i class="ti ti-trash"></i></button>'
+                : '')
+          +   '</div>'
+          + '</div>';
+      }).join('')
+    + '</div>';
 }
 
 /* ── Task detail modal ──────────────────────────────────── */
@@ -991,6 +1489,11 @@ function openTaskModal(taskId, tab) {
         <label>Assigned to</label>
         <span>${assignee ? assignee.name : '—'}</span>
       </div>
+      ${task.startDate && task.startDate !== task.dueDate ? `
+      <div class="detail-meta-item">
+        <label>Start date</label>
+        <span><i class="ti ti-player-play" style="font-size:11px;color:var(--accent);margin-right:3px"></i>${fmtDate(task.startDate)}</span>
+      </div>` : ''}
       <div class="detail-meta-item">
         <label>Due date</label>
         <span style="${isOverdue(task) ? 'color:var(--red)' : ''}">${fmtDate(task.dueDate)}</span>
@@ -1100,6 +1603,10 @@ function openTaskModal(taskId, tab) {
       Created ${fmtDate(task.createdAt)}
     </span>
     <div style="display:flex;gap:7px;flex-wrap:wrap">
+      ${done && canClose ? `
+        <button class="btn btn-ghost btn-sm" onclick="reopenTask('${task.id}')">
+          <i class="ti ti-rotate-clockwise"></i> Reopen
+        </button>` : ''}
       ${canEdit ? `
         <button class="btn btn-ghost btn-sm" onclick="duplicateTask('${task.id}')">
           <i class="ti ti-copy"></i> Duplicate
@@ -1125,9 +1632,21 @@ function openTaskModal(taskId, tab) {
   }
 }
 
+/* ── Shared modal closer — single source of truth ────────── */
+function _closeModal(id) {
+  document.getElementById(id)?.classList.remove('open');
+}
+
 function closeTaskModal() {
-  document.getElementById('task-detail-modal').classList.remove('open');
+  _closeModal('task-detail-modal');
   activeTaskId = null;
+}
+
+async function reopenTask(taskId) {
+  await State.reopenTask(taskId);
+  closeTaskModal();
+  toast('Task moved back to active.');
+  refreshCurrentPage();
 }
 
 async function submitCloseTask() {
@@ -1192,11 +1711,6 @@ async function saveCommentEdit(commentId) {
   toast('Comment updated');
 }
 
-async function quickClose(taskId) {
-  await State.closeTask(taskId, '');
-  toast('Task marked as done!');
-  refreshCurrentPage();
-}
 
 async function deleteTask(taskId) {
   if (!confirm('Delete this task? This cannot be undone.')) return;
@@ -1216,6 +1730,12 @@ function openNewTaskModal() {
   populateFormDropdowns(); /* refresh all dropdowns including pipelines */
   const ps = document.getElementById('tf-pipeline');
   if (ps) { ps.value = ''; onPipelineSelectChange(''); }
+  /* Apply default assignee from settings */
+  const defAssignee = getSettings().defaultAssigneeId;
+  if (defAssignee) {
+    const sel = document.getElementById('tf-assignee');
+    if (sel) sel.value = defAssignee;
+  }
   document.getElementById('task-form-modal').classList.add('open');
 }
 
@@ -1244,7 +1764,7 @@ function openEditModal(taskId) {
 }
 
 function closeTaskForm() {
-  document.getElementById('task-form-modal').classList.remove('open');
+  _closeModal('task-form-modal');
   editTaskId = null;
 }
 
@@ -1353,8 +1873,14 @@ function openNewTemplateModal() {
   document.getElementById('tmf-day-week').value   = 'Mon';
   document.getElementById('tmf-priority').value   = 'medium';
   document.getElementById('tmf-notes').value      = '';
-  document.getElementById('tmf-hours').value      = '';
-  document.getElementById('tmf-comments').value   = '';
+  document.getElementById('tmf-hours').value          = '';
+  document.getElementById('tmf-start-offset').value   = '';
+  document.getElementById('tmf-comments').value       = '';
+  const qs = document.getElementById('tmf-quarter-start');
+  if (qs) qs.value = '1';
+  _updateLabelDropdown('monthly');
+  const tmo = document.getElementById('tmf-title-month-offset');
+  if (tmo) tmo.value = '0';
   document.getElementById('tmf-advanced').style.display = 'none';
   _renderTemplatChecklist();
   _populateTemplateLists();
@@ -1378,9 +1904,17 @@ function openEditTemplateModal(templateId) {
   if (tp.recurrence === 'monthly') document.getElementById('tmf-day-month').value = tp.dayOfMonth || '';
   if (tp.recurrence === 'weekly')  document.getElementById('tmf-day-week').value  = tp.dayOfWeek  || 'Mon';
   /* Advanced fields */
-  document.getElementById('tmf-priority').value = tp.priority || 'medium';
-  document.getElementById('tmf-notes').value    = tp.notes || '';
-  document.getElementById('tmf-hours').value    = tp.estimatedHours || '';
+  document.getElementById('tmf-priority').value      = tp.priority || 'medium';
+  document.getElementById('tmf-notes').value         = tp.notes || '';
+  document.getElementById('tmf-hours').value         = tp.estimatedHours || '';
+  document.getElementById('tmf-start-offset').value  = tp.startOffsetDays || '';
+  if (tp.recurrence === 'quarterly') {
+    const qs = document.getElementById('tmf-quarter-start');
+    if (qs) qs.value = tp.quarterStartMonth || 1;
+  }
+  _updateLabelDropdown(tp.recurrence);
+  const tmo = document.getElementById('tmf-title-month-offset');
+  if (tmo) tmo.value = tp.titleMonthOffset ?? 0;
   document.getElementById('tmf-comments').value = (tp.defaultComments||[]).join('\n');
   if (tp.pipelineId) {
     document.getElementById('tmf-pipeline').value = tp.pipelineId;
@@ -1397,15 +1931,20 @@ function openEditTemplateModal(templateId) {
 }
 
 function closeTemplateModal() {
-  document.getElementById('template-form-modal').classList.remove('open');
+  _closeModal('template-form-modal');
   editTemplateId = null;
 }
 
 function onTemplateRecurrenceChange(val) {
-  const dayGroup = document.getElementById('tmf-day-group');
-  const monthInp = document.getElementById('tmf-day-month');
-  const weekSel  = document.getElementById('tmf-day-week');
-  const dayLabel = document.getElementById('tmf-day-label');
+  const dayGroup  = document.getElementById('tmf-day-group');
+  const monthInp  = document.getElementById('tmf-day-month');
+  const weekSel   = document.getElementById('tmf-day-week');
+  const dayLabel  = document.getElementById('tmf-day-label');
+  const qtrGroup  = document.getElementById('tmf-quarter-group');
+
+  /* Reset */
+  if (qtrGroup) qtrGroup.style.display = 'none';
+
   if (val === 'daily') {
     dayGroup.style.display = 'none';
   } else if (val === 'weekly') {
@@ -1413,12 +1952,61 @@ function onTemplateRecurrenceChange(val) {
     monthInp.style.display = 'none';
     weekSel.style.display  = '';
     dayLabel.textContent   = 'Day of week';
+  } else if (val === 'quarterly') {
+    dayGroup.style.display = '';
+    monthInp.style.display = '';
+    weekSel.style.display  = 'none';
+    dayLabel.textContent   = 'Due day of month';
+    if (qtrGroup) qtrGroup.style.display = '';
   } else {
+    /* monthly */
     dayGroup.style.display = '';
     monthInp.style.display = '';
     weekSel.style.display  = 'none';
     dayLabel.textContent   = 'Day of month';
   }
+
+  /* Rebuild label dropdown options based on recurrence */
+  _updateLabelDropdown(val);
+}
+
+function _updateLabelDropdown(recurrence) {
+  const sel  = document.getElementById('tmf-title-month-offset');
+  const hint = document.getElementById('tmf-label-hint');
+  if (!sel) return;
+
+  const current = sel.value; /* preserve selection if possible */
+
+  const opts = { daily: [
+      { v:'0', l:'— No label' },
+    ], weekly: [
+      { v:'0', l:'— No label' },
+      { v:'3', l:'Month + Week number  e.g. "June W2 2026"' },
+    ], monthly: [
+      { v:'0',  l:'— No label' },
+      { v:'-1', l:'Previous month  e.g. "May 2026"' },
+      { v:'2',  l:'This month (due month)  e.g. "June 2026"' },
+      { v:'1',  l:'Next month  e.g. "July 2026"' },
+    ], quarterly: [
+      { v:'0',  l:'— No label' },
+      { v:'-1', l:'Previous quarter  e.g. "Jan–Mar 2026"' },
+      { v:'2',  l:'This quarter  e.g. "Apr–Jun 2026"' },
+    ]
+  };
+
+  const list = opts[recurrence] || opts.monthly;
+  sel.innerHTML = list.map(function(o) {
+    return '<option value="' + o.v + '"' + (o.v === current ? ' selected' : '') + '>' + o.l + '</option>';
+  }).join('');
+
+  /* Contextual hint */
+  const hints = {
+    weekly:    'Use <strong>Month + Week</strong> for recurring weekly tasks like invoice follow-ups',
+    monthly:   'Use <strong>Previous month</strong> for closing/reconciliation tasks opened in the following month',
+    quarterly: 'Use <strong>Previous quarter</strong> for VAT filing tasks — Jan–Mar VAT is filed in April',
+    daily:     '',
+  };
+  if (hint) hint.innerHTML = hints[recurrence] || '';
 }
 
 async function submitTemplateForm() {
@@ -1426,16 +2014,20 @@ async function submitTemplateForm() {
   const clientId   = document.getElementById('tmf-client').value;
   const assigneeId = document.getElementById('tmf-assignee').value;
   const recurrence = document.getElementById('tmf-recurrence').value;
-  const dayOfMonth = recurrence === 'monthly' ? (Number(document.getElementById('tmf-day-month').value) || null) : null;
-  const dayOfWeek  = recurrence === 'weekly'  ? document.getElementById('tmf-day-week').value : null;
+  const dayOfMonth       = (recurrence === 'monthly' || recurrence === 'quarterly')
+    ? (Number(document.getElementById('tmf-day-month').value) || null) : null;
+  const dayOfWeek        = recurrence === 'weekly'    ? document.getElementById('tmf-day-week').value : null;
+  const quarterStartMonth= recurrence === 'quarterly' ? (parseInt(document.getElementById('tmf-quarter-start')?.value) || 1) : null;
 
   if (!title || !clientId || !assigneeId) {
     toast('Please fill in title, client and assignee', 'error'); return;
   }
 
-  const priority        = document.getElementById('tmf-priority')?.value || 'medium';
-  const notes           = document.getElementById('tmf-notes')?.value.trim() || '';
-  const estimatedHours  = parseFloat(document.getElementById('tmf-hours')?.value) || 0;
+  const priority         = document.getElementById('tmf-priority')?.value || 'medium';
+  const notes            = document.getElementById('tmf-notes')?.value.trim() || '';
+  const estimatedHours   = parseFloat(document.getElementById('tmf-hours')?.value) || 0;
+  const startOffsetDays  = parseInt(document.getElementById('tmf-start-offset')?.value) || 0;
+  const titleMonthOffset = parseInt(document.getElementById('tmf-title-month-offset')?.value) || 0;
   const pipelineId      = document.getElementById('tmf-pipeline')?.value || '';
   const pipelineStageId = document.getElementById('tmf-stage')?.value || '';
   const commentsRaw     = document.getElementById('tmf-comments')?.value.trim() || '';
@@ -1443,25 +2035,38 @@ async function submitTemplateForm() {
   const subtasks        = _tmfSubtasks.map((text,i) => ({ id:'st'+Date.now()+i, text, done:false }));
 
   const templateData = { title, clientId, assigneeId, recurrence, dayOfMonth, dayOfWeek,
-    priority, notes, subtasks, pipelineId, pipelineStageId, estimatedHours,
-    defaultComments, templateDependencies:[] };
+    quarterStartMonth, titleMonthOffset, priority, notes, subtasks, pipelineId, pipelineStageId,
+    estimatedHours, startOffsetDays, defaultComments, templateDependencies:[] };
 
   const btn = document.querySelector('#template-form-modal .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
 
-  if (editTemplateId) {
-    await State.updateTemplate(editTemplateId, templateData);
+  try {
+    if (editTemplateId) {
+      await State.updateTemplate(editTemplateId, templateData);
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
+      closeTemplateModal();
+      renderTemplates();
+      toast('Template updated!');
+    } else {
+      await State.addTemplate(templateData);
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
+      closeTemplateModal();
+      renderTemplates();
+      toast(`Template "${title}" created!`);
+    }
+  } catch(e) {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
-    closeTemplateModal();
-    renderTemplates();
-    toast('Template updated!');
-  } else {
-    await State.addTemplate(templateData);
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-circle-check"></i> Save template'; }
-    closeTemplateModal();
-    renderTemplates();
-    toast(`Template "${title}" created!`);
+    toast('Failed to save template: ' + e.message, 'error');
   }
+}
+
+async function toggleTemplateActive(templateId) {
+  const tp = State.templates.find(t => t.id === templateId);
+  if (!tp) return;
+  await State.updateTemplate(templateId, { active: !tp.active });
+  toast(tp.active ? 'Template paused' : 'Template activated');
+  renderTemplates();
 }
 
 async function confirmDeleteTemplate(templateId) {
@@ -1677,26 +2282,28 @@ function renderWorkload() {
 
   if (!data.length) { el.innerHTML = ''; return; }
 
-  const maxTasks = Math.max(...data.map(u => u.total), 1);
+  const CAPACITY  = 20; /* assumed max tasks per person */
+  const maxTasks  = Math.max(...data.map(u => u.total), 1);
   el.innerHTML = `
-  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 22px">
-    ${data.map(u => {
-      const pct   = Math.round(u.total   / maxTasks * 100);
-      const odPct = Math.round(u.overdue / maxTasks * 100);
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px">
+    ${data.map((u, idx) => {
+      const pct      = Math.round(u.total   / maxTasks * 100);
+      const odPct    = Math.round(u.overdue / maxTasks * 100);
+      const utilPct  = Math.min(Math.round(u.total / CAPACITY * 100), 100);
+      const utilCol  = utilPct >= 90 ? 'var(--red)' : utilPct >= 70 ? 'var(--amber)' : 'var(--green)';
       return `
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:${data.indexOf(u) < data.length-1 ? '12' : '0'}px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${idx < data.length-1 ? '12' : '0'}px">
         <div class="avatar ${u.avClass}" style="width:26px;height:26px;font-size:9px;flex-shrink:0">${u.initials}</div>
-        <div style="font-size:12px;color:var(--ink-2);width:76px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div>
+        <div style="font-size:var(--text-sm);color:var(--ink-2);width:72px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div>
         <div style="flex:1;background:var(--bg);border-radius:4px;height:8px;overflow:hidden;position:relative">
           <div style="height:100%;width:${pct}%;background:${u.overdue?'var(--amber)':'var(--accent)'};border-radius:4px;transition:width 600ms var(--ease)"></div>
           ${u.overdue ? `<div style="position:absolute;top:0;left:0;height:100%;width:${odPct}%;background:var(--red);border-radius:4px"></div>` : ''}
         </div>
-        <div style="font-size:11px;font-family:var(--mono);color:var(--ink-3);text-align:right;flex-shrink:0;min-width:40px">
-          ${u.total}
-          ${u.overdue ? `<div style="color:var(--red);font-size:10px">${u.overdue}OD</div>` : ''}
-        </div>
+        <div style="font-size:var(--text-sm);font-family:var(--mono);color:var(--ink-3);text-align:right;flex-shrink:0;min-width:32px">${u.total}</div>
+        <div style="font-size:10px;font-weight:700;color:${utilCol};min-width:34px;text-align:right;flex-shrink:0">${utilPct}%</div>
       </div>`;
     }).join('')}
+    <div style="font-size:10px;color:var(--ink-4);margin-top:10px;text-align:right">% = utilisation of ${CAPACITY} task capacity</div>
   </div>`;
 }
 
@@ -1711,8 +2318,7 @@ async function generateFromTemplates() {
   const btn = document.getElementById('tg-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Generating…'; }
 
-  const monthLabel = _monthLabel(month);
-  const dueDate0   = `${month}-01`; /* earliest possible due date this month */
+  const dueDate0   = `${month}-01`;
   const dueDate1   = _lastDayOfMonth(month);
   const created    = [];
   const skipped    = [];
@@ -1720,7 +2326,8 @@ async function generateFromTemplates() {
   for (const tp of active) {
     const dueDate  = _templateDueDate(tp, month);
     if (!dueDate) continue;
-    const titleKey = `${tp.title} — ${monthLabel}`;
+    const lbl      = _taskTitleLabel(tp, month, dueDate);
+    const titleKey = lbl ? `${tp.title} — ${lbl}` : tp.title;
     /* Duplicate check: match title + client OR same template+client with a due date in this month */
     const exists = State.tasks.some(t =>
       t.clientId === tp.clientId &&
@@ -1728,6 +2335,14 @@ async function generateFromTemplates() {
        (t.dueDate >= dueDate0 && t.dueDate <= dueDate1 &&
         t.title.startsWith(tp.title))));
     if (exists) { skipped.push(tp.title); continue; }
+    /* Calculate startDate from offset */
+    let startDate = '';
+    if (dueDate && tp.startOffsetDays > 0) {
+      const d = new Date(dueDate);
+      d.setDate(d.getDate() - tp.startOffsetDays);
+      startDate = d.toISOString().slice(0,10);
+    }
+
     const task = await State.addTask({
       title:           titleKey,
       clientId:        tp.clientId,
@@ -1735,6 +2350,7 @@ async function generateFromTemplates() {
       type:            tp.recurrence,
       priority:        tp.priority || 'medium',
       dueDate,
+      startDate,
       notes:           tp.notes || '',
       status:          'pending',
       subtasks:        (tp.subtasks||[]).map(s => ({...s, id:'st'+Date.now()+Math.random(), done:false})),
@@ -1759,7 +2375,24 @@ async function generateFromTemplates() {
   }
 }
 
-function _templateDueDate(tp, yearMonth) {
+/* Returns true if yearMonth is a due quarter month for this template */
+function _isQuarterlyDueMonth(tp, yearMonth) {
+  const m = parseInt(yearMonth.split('-')[1]); /* 1-12 */
+  const s = tp.quarterStartMonth || 1;          /* 1, 2, or 3 */
+  return (m - s) % 3 === 0;
+}
+
+/* Returns the quarterly months as a readable label e.g. "Jan · Apr · Jul · Oct" */
+function _quarterLabel(startMonth) {
+  const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const s = (startMonth || 1) - 1; /* 0-indexed */
+  return [s, s+3, s+6, s+9].map(i => MONTH_SHORT[i % 12]).join(' · ');
+}
+
+function _templateDueDate(tp, yearMonth, overrideDate) {
+  /* overrideDate: use this exact date instead of calculating (for daily/weekly auto-gen) */
+  if (overrideDate) return overrideDate;
+
   const [y, m] = yearMonth.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
 
@@ -1767,11 +2400,17 @@ function _templateDueDate(tp, yearMonth) {
     const day = Math.min(tp.dayOfMonth || lastDay, lastDay);
     return `${yearMonth}-${String(day).padStart(2, '0')}`;
   }
+  if (tp.recurrence === 'quarterly') {
+    /* Only generate if this month is a due quarter month */
+    if (!_isQuarterlyDueMonth(tp, yearMonth)) return null;
+    const day = Math.min(tp.dayOfMonth || lastDay, lastDay);
+    return `${yearMonth}-${String(day).padStart(2, '0')}`;
+  }
   if (tp.recurrence === 'weekly') {
     return _firstWeekdayInMonth(yearMonth, tp.dayOfWeek || 'Mon');
   }
   if (tp.recurrence === 'daily') {
-    return `${yearMonth}-01`; /* first day of month for daily templates */
+    return `${yearMonth}-01`; /* manual generate: first day of month */
   }
   return null;
 }
@@ -1785,10 +2424,130 @@ function _firstWeekdayInMonth(yearMonth, dayName) {
   return d.toISOString().slice(0, 10);
 }
 
+/* ══════════════════════════════════════════════════════════
+   AUTO-GENERATION ENGINE
+   Runs silently on login. Each type tracked separately.
+   ══════════════════════════════════════════════════════════ */
+
+async function _runAutoGeneration() {
+  const s     = getSettings();
+  const today = new Date().toISOString().slice(0,10);
+  const now   = new Date();
+  const month = today.slice(0,7);
+
+  /* Get this week's Monday date */
+  const dow  = now.getDay(); /* 0=Sun, 1=Mon … */
+  const diff = dow === 0 ? -6 : 1 - dow; /* days back to Monday */
+  const mon  = new Date(now); mon.setDate(now.getDate() + diff);
+  const thisMonday = mon.toISOString().slice(0,10);
+
+  const results = [];
+
+  /* ── DAILY ─────────────────────────────────────────────── */
+  if (s.autoGenDaily !== false) {
+    const lastDaily = localStorage.getItem('ofiz_ag_daily');
+    if (lastDaily !== today) {
+      const count = await _autoGenByType('daily', today, today);
+      localStorage.setItem('ofiz_ag_daily', today);
+      if (count > 0) results.push(`${count} daily task${count!==1?'s':''}`);
+    }
+  }
+
+  /* ── WEEKLY — only on Mondays ──────────────────────────── */
+  if (s.autoGenWeekly !== false && now.getDay() === 1) {
+    const lastWeekly = localStorage.getItem('ofiz_ag_weekly');
+    if (lastWeekly !== thisMonday) {
+      const count = await _autoGenByType('weekly', month, thisMonday);
+      localStorage.setItem('ofiz_ag_weekly', thisMonday);
+      if (count > 0) results.push(`${count} weekly task${count!==1?'s':''}`);
+    }
+  }
+
+  /* ── MONTHLY — only on the 1st ─────────────────────────── */
+  if (s.autoGenMonthly !== false && now.getDate() === 1) {
+    const lastMonthly = localStorage.getItem('ofiz_ag_monthly');
+    if (lastMonthly !== month) {
+      const count = await _autoGenByType('monthly', month, null);
+      localStorage.setItem('ofiz_ag_monthly', month);
+      if (count > 0) results.push(`${count} monthly task${count!==1?'s':''}`);
+    }
+  }
+
+  /* ── QUARTERLY — on the 1st, only for due quarter months ── */
+  if (now.getDate() === 1) {
+    const lastQuarterly = localStorage.getItem('ofiz_ag_quarterly');
+    if (lastQuarterly !== month) {
+      const count = await _autoGenByType('quarterly', month, null);
+      localStorage.setItem('ofiz_ag_quarterly', month);
+      if (count > 0) results.push(`${count} quarterly task${count!==1?'s':''}`);
+    }
+  }
+
+  /* Show toast if anything was generated */
+  if (results.length) {
+    toast(`Auto-generated: ${results.join(', ')} ✓`);
+    refreshCurrentPage();
+  }
+}
+
+async function _autoGenByType(recurrence, yearMonth, overrideDate) {
+  const today    = new Date().toISOString().slice(0,10);
+  const dueDate0 = `${yearMonth}-01`;
+  const dueDate1 = _lastDayOfMonth(yearMonth);
+  /* monthLbl defined per-template below using _taskTitleLabel */
+  let   created  = 0;
+
+  const templates = State.templates.filter(tp => tp.active && tp.recurrence === recurrence);
+
+  for (const tp of templates) {
+    const dueDate = _templateDueDate(tp, yearMonth, overrideDate);
+    if (!dueDate) continue;
+
+    /* Duplicate check */
+    const lbl2     = _taskTitleLabel(tp, yearMonth, dueDate);
+    const titleKey = lbl2 ? `${tp.title} — ${lbl2}` : tp.title;
+    const exists   = State.tasks.some(t =>
+      t.clientId === tp.clientId &&
+      (t.title === titleKey ||
+       (t.dueDate >= dueDate0 && t.dueDate <= dueDate1 && t.title.startsWith(tp.title)))
+    );
+    if (exists) continue;
+
+    /* Calculate start date */
+    let startDate = '';
+    if (tp.startOffsetDays > 0) {
+      const d = new Date(dueDate);
+      d.setDate(d.getDate() - tp.startOffsetDays);
+      startDate = d.toISOString().slice(0,10);
+    }
+
+    await State.addTask({
+      title:           titleKey,
+      clientId:        tp.clientId,
+      assigneeId:      tp.assigneeId,
+      type:            tp.recurrence,
+      priority:        tp.priority || 'medium',
+      dueDate,
+      startDate,
+      notes:           tp.notes || '',
+      status:          'pending',
+      subtasks:        (tp.subtasks||[]).map(s => ({...s, id:'st'+Date.now()+Math.random(), done:false})),
+      pipelineId:      tp.pipelineId || null,
+      pipelineStageId: tp.pipelineStageId || null,
+    });
+    created++;
+  }
+  return created;
+}
+
 /* ── Search ─────────────────────────────────────────────── */
+let _searchTimer = null;
 function handleSearch(val) {
-  taskFilter.search = val;
-  renderAllTasks();
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(function() {
+    taskFilter.search = val;
+    renderAllTasks();
+  }, 220);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1810,41 +2569,64 @@ function renderPipelinesPage() {
 
 let _pipTabDragId = null;
 
+/* Preset palette for pipeline tab colours — cycles if more pipelines than colours */
+const _PIP_PALETTE = [
+  { bg:'#dbeafe', text:'#1e40af', active:'#1d4ed8', shadow:'rgba(29,78,216,0.35)' },  /* blue    */
+  { bg:'#d1fae5', text:'#065f46', active:'#059669', shadow:'rgba(5,150,105,0.35)'  },  /* green   */
+  { bg:'#fce7f3', text:'#9d174d', active:'#db2777', shadow:'rgba(219,39,119,0.35)' },  /* pink    */
+  { bg:'#ede9fe', text:'#4c1d95', active:'#7c3aed', shadow:'rgba(124,58,237,0.35)' },  /* purple  */
+  { bg:'#fef3c7', text:'#92400e', active:'#d97706', shadow:'rgba(217,119,6,0.35)'  },  /* amber   */
+  { bg:'#fee2e2', text:'#991b1b', active:'#dc2626', shadow:'rgba(220,38,38,0.35)'  },  /* red     */
+  { bg:'#ccfbf1', text:'#134e4a', active:'#0d9488', shadow:'rgba(13,148,136,0.35)' },  /* teal    */
+  { bg:'#f0fdf4', text:'#166534', active:'#16a34a', shadow:'rgba(22,163,74,0.35)'  },  /* lime    */
+];
+
 function renderPipelineTabs() {
   const el = document.getElementById('pipeline-tabs');
   if (!el) return;
   const today   = new Date().toISOString().slice(0,10);
   const isAdmin = State.user?.role === 'admin';
-  el.innerHTML  = State.pipelines.map(p => {
-    const cards   = State.tasks.filter(t => t.pipelineId === p.id && t.status !== 'done');
-    const hasOD   = cards.some(t => t.dueDate < today);
-    const cnt     = cards.length;
+
+  el.innerHTML = State.pipelines.map((p, idx) => {
+    const pal      = _PIP_PALETTE[idx % _PIP_PALETTE.length];
+    const cards    = State.tasks.filter(t => t.pipelineId === p.id && t.status !== 'done');
+    const hasOD    = cards.some(t => t.dueDate < today);
+    const cnt      = cards.length;
     const isActive = p.id === State.activePipelineId;
-    const cntHtml = cnt > 0
-      ? `<span style="font-size:10px;font-family:var(--mono);font-weight:700;padding:1px 7px;
-           border-radius:20px;
-           background:${isActive ? 'rgba(255,255,255,0.25)' : hasOD ? '#fee2e2' : '#f1f5f9'};
-           color:${isActive ? '#fff' : hasOD ? '#ef4444' : '#64748b'}">${cnt}</span>`
+
+    const bg      = isActive ? pal.active : pal.bg;
+    const color   = isActive ? '#fff'     : pal.text;
+    const shadow  = isActive ? `0 3px 12px ${pal.shadow}` : 'none';
+    const border  = isActive ? `2px solid transparent` : `2px solid ${pal.bg}`;
+
+    const cntBadge = cnt > 0
+      ? `<span style="font-size:10px;font-family:var(--mono);font-weight:700;
+           padding:1px 7px;border-radius:20px;
+           background:${isActive ? 'rgba(255,255,255,0.25)' : hasOD ? '#fee2e2' : 'rgba(0,0,0,0.07)'};
+           color:${isActive ? '#fff' : hasOD ? '#ef4444' : pal.text}">${cnt}</span>`
       : '';
-    const editHtml = isAdmin
-      ? `<span onclick="event.stopPropagation();openEditPipelineModal('${p.id}')"
-           style="opacity:0.6;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;
-                  transition:opacity 120ms" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">
-           <i class="ti ti-pencil"></i></span>` : '';
-    const delHtml = isAdmin
-      ? `<span onclick="event.stopPropagation();confirmDeletePipeline('${p.id}')"
-           style="opacity:0.5;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;
-                  transition:opacity 120ms" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">
-           <i class="ti ti-x"></i></span>` : '';
-    return `
-    <div class="pipeline-tab ${isActive ? 'active' : ''}"
+
+    const actions = isAdmin
+      ? `<span class="pip-tab-actions">
+           <span class="pip-tab-btn" onclick="event.stopPropagation();openEditPipelineModal('${p.id}')" title="Edit">
+             <i class="ti ti-pencil" style="font-size:11px"></i>
+           </span>
+           <span class="pip-tab-btn pip-tab-del" onclick="event.stopPropagation();confirmDeletePipeline('${p.id}')" title="Delete">
+             <i class="ti ti-trash" style="font-size:11px"></i>
+           </span>
+         </span>` : '';
+
+    return `<div class="pipeline-tab ${isActive ? 'active' : ''}"
          draggable="${isAdmin}"
          onclick="switchPipeline('${p.id}')"
          ondragstart="pipTabDragStart(event,'${p.id}')"
          ondragend="pipTabDragEnd(event)"
          ondragover="pipTabDragOver(event)"
-         ondrop="pipTabDrop(event,'${p.id}')">
-      ${p.name} ${cntHtml} ${editHtml} ${delHtml}
+         ondrop="pipTabDrop(event,'${p.id}')"
+         style="background:${bg};color:${color};border:${border};box-shadow:${shadow}">
+      <span class="pip-tab-name">${p.name}</span>
+      ${cntBadge}
+      ${actions}
     </div>`;
   }).join('');
 }
@@ -2293,9 +3075,10 @@ function toggleKanbanBulk() {
   const btn = document.getElementById('kb-bulk-btn');
   if (btn) {
     btn.innerHTML = _kbBulkMode ? '<i class="ti ti-checkbox"></i> Done' : '<i class="ti ti-checkbox"></i> Select';
-    btn.style.background  = _kbBulkMode ? 'var(--ink)' : '';
-    btn.style.color       = _kbBulkMode ? 'var(--bg-sidebar)' : '';
-    btn.style.borderColor = _kbBulkMode ? 'var(--ink)' : '';
+    btn.style.background  = _kbBulkMode ? 'linear-gradient(135deg,#81D8D0,#3db5ad)' : '';
+    btn.style.color       = _kbBulkMode ? '#1a2e2c' : '';
+    btn.style.borderColor = _kbBulkMode ? 'transparent' : '';
+    btn.style.fontWeight  = _kbBulkMode ? '700' : '';
   }
   renderKanbanBoard(State.activePipelineId);
 }
@@ -2425,7 +3208,7 @@ function openEditPipelineModal(pipelineId) {
 }
 
 function closePipelineModal() {
-  document.getElementById('pipeline-form-modal').classList.remove('open');
+  _closeModal('pipeline-form-modal');
   editPipelineId   = null;
   _removedStageIds = [];
 }
@@ -2573,10 +3356,278 @@ async function submitPipeTaskForm() {
 /* ═══════════════════════════════════════════════════════════
    SETTINGS PAGE
    ═══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   APP SETTINGS — stored in localStorage
+   ══════════════════════════════════════════════════════════ */
+const _SETTINGS_KEY = 'ofiz_app_settings';
+
+function getSettings() {
+  try { return Object.assign({
+    theme:              'light',
+    expiryWarningDays:  30,
+    defaultAssigneeId:  '',
+    fyStartMonth:       1,
+    workingDays:        [1,2,3,4,5],
+    autoGenDaily:       true,
+    autoGenWeekly:      true,
+    autoGenMonthly:     true,
+    companyName:        'OFIZ Accounting',
+    vatNo:              '',
+    address:            '',
+  }, JSON.parse(localStorage.getItem(_SETTINGS_KEY) || '{}')); }
+  catch(e) { return {}; }
+}
+
+function saveSetting(key, value) {
+  const s = getSettings();
+  s[key] = value;
+  localStorage.setItem(_SETTINGS_KEY, JSON.stringify(s));
+}
+
+function saveAllSettings() {
+  const s = getSettings();
+  /* Company profile */
+  s.companyName = document.getElementById('st-company-name')?.value.trim() || '';
+  s.vatNo       = document.getElementById('st-vat-no')?.value.trim() || '';
+  s.address     = document.getElementById('st-address')?.value.trim() || '';
+  /* Workflow */
+  s.defaultAssigneeId = document.getElementById('st-def-assignee')?.value || '';
+  s.expiryWarningDays = parseInt(document.getElementById('st-expiry-days')?.value) || 30;
+  s.fyStartMonth      = parseInt(document.getElementById('st-fy-month')?.value) || 1;
+  s.autoGenDaily      = document.getElementById('st-auto-daily')?.checked ?? true;
+  s.autoGenWeekly     = document.getElementById('st-auto-weekly')?.checked ?? true;
+  s.autoGenMonthly    = document.getElementById('st-auto-monthly')?.checked ?? true;
+  const wdChecks = document.querySelectorAll('.st-wd-check');
+  s.workingDays = [];
+  wdChecks.forEach(cb => { if (cb.checked) s.workingDays.push(parseInt(cb.value)); });
+  localStorage.setItem(_SETTINGS_KEY, JSON.stringify(s));
+  _applySettings();
+  toast('Settings saved!');
+}
+
+function _applySettings() {
+  const s = getSettings();
+  /* Theme */
+  if (s.theme === 'dark') {
+    document.body.classList.add('dark');
+  } else if (s.theme === 'light') {
+    document.body.classList.remove('dark');
+  } else {
+    /* auto — follow system */
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.body.classList.toggle('dark', prefersDark);
+  }
+  /* Dark button icon in topbar */
+  const btn = document.getElementById('dark-btn');
+  if (btn) btn.innerHTML = document.body.classList.contains('dark')
+    ? '<i class="ti ti-sun"></i>' : '<i class="ti ti-moon"></i>';
+}
+
+function setTheme(theme) {
+  saveSetting('theme', theme);
+  _applySettings();
+  /* Update active state on theme buttons */
+  document.querySelectorAll('.st-theme-btn').forEach(b => {
+    b.classList.toggle('on', b.dataset.theme === theme);
+  });
+}
+
+/* Export tasks to CSV */
+function exportTasksCSV() {
+  const today = new Date().toISOString().slice(0,10);
+  const headers = ['Title','Client','Assignee','Type','Status','Priority','Due Date','Start Date','Created'];
+  const rows = State.tasks.map(t => [
+    '"' + (t.title||'').replace(/"/g,'""') + '"',
+    '"' + (State.getClient(t.clientId)?.name||'') + '"',
+    '"' + (State.getUser(t.assigneeId)?.name||'') + '"',
+    t.type, t.status, t.priority, t.dueDate||'', t.startDate||'', t.createdAt||''
+  ].join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  _downloadCSV(csv, 'ofiz-tasks-' + today + '.csv');
+}
+
+function exportClientsCSV() {
+  const today = new Date().toISOString().slice(0,10);
+  const headers = ['Name','Short','Classification','TRN','Trade License','TL Expiry','VAT Registered','Contact','Email','Phone'];
+  const rows = State.clients.map(c => [
+    '"' + (c.name||'').replace(/"/g,'""') + '"',
+    c.short||'', c.classification||'', c.trn||'', c.tradeLicense||'', c.tradeLicenseExpiry||'',
+    c.vatRegistered ? 'Yes' : 'No',
+    '"' + (c.contactName||'') + '"', c.contactEmail||'', c.contactPhone||''
+  ].join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  _downloadCSV(csv, 'ofiz-clients-' + today + '.csv');
+}
+
+function _downloadCSV(content, filename) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 function renderSettings() {
   renderSettingsDemoBanner();
+  renderSettingsPreferences();
   renderSettingsUsers();
-  renderSettingsClients();
+}
+
+function renderSettingsPreferences() {
+  const s   = getSettings();
+  const el  = document.getElementById('settings-preferences');
+  if (!el) return;
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAYS   = [
+    { v:1, l:'Mon' }, { v:2, l:'Tue' }, { v:3, l:'Wed' },
+    { v:4, l:'Thu' }, { v:5, l:'Fri' }, { v:6, l:'Sat' }, { v:0, l:'Sun' },
+  ];
+
+  el.innerHTML = `
+  <!-- Company profile -->
+  <div class="settings-section" style="margin-bottom:32px">
+    <div class="section-head" style="margin-bottom:16px">
+      <span class="section-title">Company profile</span>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Company name</label>
+        <input id="st-company-name" class="form-input" value="${esc(s.companyName||'')}" placeholder="OFIZ Accounting">
+      </div>
+      <div class="form-group">
+        <label class="form-label">VAT registration no.</label>
+        <input id="st-vat-no" class="form-input" value="${esc(s.vatNo||'')}" placeholder="100XXXXXXXXX" style="font-family:var(--mono)">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Office address</label>
+      <textarea id="st-address" class="form-textarea" rows="2" placeholder="Office 101, Business Bay, Dubai, UAE">${esc(s.address||'')}</textarea>
+    </div>
+  </div>
+
+  <!-- Theme -->
+  <div class="settings-section" style="margin-bottom:32px">
+    <div class="section-head" style="margin-bottom:16px">
+      <span class="section-title">Appearance</span>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Theme</label>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        ${['light','dark','auto'].map(t => `
+          <button class="filter-chip st-theme-btn${s.theme===t?' on':''}" data-theme="${t}"
+            onclick="setTheme('${t}')">
+            <i class="ti ti-${t==='light'?'sun':t==='dark'?'moon':'device-laptop'}" style="font-size:12px"></i>
+            ${t.charAt(0).toUpperCase()+t.slice(1)}
+          </button>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <!-- Workflow defaults -->
+  <div class="settings-section" style="margin-bottom:32px">
+    <div class="section-head" style="margin-bottom:16px">
+      <span class="section-title">Workflow defaults</span>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Default task assignee</label>
+        <select id="st-def-assignee" class="form-select">
+          <option value="">No default</option>
+          ${State.users.map(u => `<option value="${u.id}" ${s.defaultAssigneeId===u.id?'selected':''}>${u.name}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">Pre-selected when creating a new task</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Document expiry warning</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input id="st-expiry-days" type="number" class="form-input" min="7" max="180"
+            value="${s.expiryWarningDays||30}" style="width:80px">
+          <span style="font-size:13px;color:var(--ink-2)">days before expiry</span>
+        </div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">Affects sidebar badge, health score, expiry alerts</div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Financial year start</label>
+        <select id="st-fy-month" class="form-select">
+          ${MONTHS.map((m,i) => `<option value="${i+1}" ${s.fyStartMonth===(i+1)?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">Used for CT and VAT period calculations</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Working days</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          ${DAYS.map(d => `
+            <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer">
+              <input type="checkbox" class="st-wd-check" value="${d.v}"
+                ${(s.workingDays||[1,2,3,4,5]).includes(d.v)?'checked':''}>
+              ${d.l}
+            </label>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:6px">Affects overdue calculations</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" style="margin-bottom:10px">Auto-generation schedule</label>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius)">
+          <input type="checkbox" id="st-auto-daily" ${s.autoGenDaily!==false?'checked':''}
+            style="width:16px;height:16px;flex-shrink:0">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--ink)">
+              <i class="ti ti-sun" style="color:var(--amber);margin-right:4px"></i> Daily tasks
+            </div>
+            <div style="font-size:11.5px;color:var(--ink-3)">Generate daily templates every morning — creates task due today on first login</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius)">
+          <input type="checkbox" id="st-auto-weekly" ${s.autoGenWeekly!==false?'checked':''}
+            style="width:16px;height:16px;flex-shrink:0">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--ink)">
+              <i class="ti ti-calendar-week" style="color:var(--blue);margin-right:4px"></i> Weekly tasks
+            </div>
+            <div style="font-size:11.5px;color:var(--ink-3)">Generate weekly templates every Monday morning — creates task due that day</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius)">
+          <input type="checkbox" id="st-auto-monthly" ${s.autoGenMonthly!==false?'checked':''}
+            style="width:16px;height:16px;flex-shrink:0">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--ink)">
+              <i class="ti ti-calendar-month" style="color:var(--accent);margin-right:4px"></i> Monthly tasks
+            </div>
+            <div style="font-size:11.5px;color:var(--ink-3)">Generate monthly templates on the 1st of each month — creates tasks for the full month</div>
+          </div>
+        </label>
+      </div>
+      <div style="font-size:11px;color:var(--ink-3);margin-top:8px;padding-left:2px">
+        <i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px"></i>
+        Runs silently on first login of the day. When deployed, Supabase cron runs at exactly 7:00 AM.
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-primary" onclick="saveAllSettings()">
+        <i class="ti ti-circle-check"></i> Save settings
+      </button>
+    </div>
+  </div>
+
+  <!-- Export -->
+  <div class="settings-section" style="margin-bottom:32px">
+    <div class="section-head" style="margin-bottom:16px">
+      <span class="section-title">Export data</span>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="exportTasksCSV()">
+        <i class="ti ti-table-export"></i> Export all tasks (CSV)
+      </button>
+      <button class="btn btn-ghost" onclick="exportClientsCSV()">
+        <i class="ti ti-building-export"></i> Export clients (CSV)
+      </button>
+    </div>
+  </div>`;
 }
 
 function renderSettingsDemoBanner() {
@@ -2732,7 +3783,7 @@ function openEditUserModal(userId) {
 }
 
 function closeUserModal() {
-  document.getElementById('user-form-modal').classList.remove('open');
+  _closeModal('user-form-modal');
   editUserId = null;
 }
 
@@ -2841,7 +3892,11 @@ function _renderChecklistSection(task, canEdit) {
             onclick="${canEdit ? `toggleSubtaskCheck('${task.id}','${s.id}')` : ''}">
             ${s.done ? '<i class="ti ti-check" style="font-size:9px"></i>' : ''}
           </div>
-          <span class="subtask-text ${s.done ? 'done' : ''}">${esc(s.text)}</span>
+          ${canEdit
+            ? `<input class="subtask-text-input ${s.done ? 'done' : ''}" value="${esc(s.text)}"
+                onchange="editSubtaskText('${task.id}','${s.id}',this.value)"
+                onkeydown="if(event.key==='Enter')this.blur()">`
+            : `<span class="subtask-text ${s.done ? 'done' : ''}">${esc(s.text)}</span>`}
           ${canEdit ? `<button class="subtask-del" onclick="deleteSubtaskItem('${task.id}','${s.id}')">
             <i class="ti ti-x"></i></button>` : ''}
         </div>`).join('')}
@@ -2856,6 +3911,18 @@ function _renderChecklistSection(task, canEdit) {
       </button>
     </div>` : ''}
   </div>`;
+}
+
+async function editSubtaskText(taskId, stId, newText) {
+  const text = (newText || '').trim();
+  if (!text) return;
+  const task = State.getTask(taskId);
+  if (!task) return;
+  const st = (task.subtasks || []).find(s => s.id === stId);
+  if (st) {
+    st.text = text;
+    await State.updateTask(taskId, { subtasks: task.subtasks });
+  }
 }
 
 async function addSubtaskItem(taskId) {
@@ -2945,6 +4012,14 @@ const DOC_ICONS = {
   'Insurance':        { icon:'ti-shield',   bg:'var(--green-light)',  color:'var(--green)'  },
 };
 
+let _docFilter = 'all';
+
+function setDocFilter(val, btn) {
+  _docFilter = val;
+  document.querySelectorAll('[data-doc-filter]').forEach(b => b.classList.toggle('on', b.dataset.docFilter === val));
+  renderDocuments();
+}
+
 function renderDocuments() {
   const el    = document.getElementById('document-list');
   if (!el) return;
@@ -2956,29 +4031,41 @@ function renderDocuments() {
   const db = document.getElementById('badge-documents');
   if (db) { db.textContent = expiring || ''; db.style.display = expiring ? '' : 'none'; }
 
-  /* Dashboard alert */
+  /* Dashboard alert — split expired vs expiring */
   const alertEl = document.getElementById('doc-expiry-alert');
   if (alertEl) {
-    const critical = State.expiringDocuments(30);
-    if (critical.length) {
-      alertEl.style.display = '';
-      alertEl.innerHTML = `
-        <div style="background:var(--amber-light);border:1px solid rgba(183,105,26,0.25);
-          border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;gap:12px">
-          <i class="ti ti-alert-triangle" style="font-size:18px;color:var(--amber);flex-shrink:0"></i>
-          <div>
-            <div style="font-size:13px;font-weight:500;color:var(--amber)">
-              ${critical.length} document${critical.length !== 1 ? 's' : ''} expiring within 30 days
-            </div>
-            <div style="font-size:11.5px;color:var(--ink-2);margin-top:2px">
-              ${critical.slice(0,3).map(d => {
-                const c = State.getClient(d.clientId);
-                return `${c?.short||'?'} · ${d.type}`;
-              }).join(' &nbsp;·&nbsp; ')}
-              ${critical.length > 3 ? ` and ${critical.length-3} more` : ''}
-            </div>
+    const allDocs    = State.expiringDocuments(30);
+    const expired    = allDocs.filter(d => d.expiryDate < today);
+    const expiringSoon = allDocs.filter(d => d.expiryDate >= today);
+
+    const _docRow = (docs, color, bg, border, icon, label) => {
+      if (!docs.length) return '';
+      return `<div style="background:${bg};border:1px solid ${border};
+        border-radius:var(--radius);padding:11px 16px;display:flex;align-items:center;gap:12px">
+        <i class="ti ${icon}" style="font-size:17px;color:${color};flex-shrink:0"></i>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:${color}">
+            ${docs.length} document${docs.length!==1?'s':''} ${label}
           </div>
-        </div>`;
+          <div style="font-size:11.5px;color:var(--ink-2);margin-top:2px">
+            ${docs.slice(0,3).map(d => {
+              const c = State.getClient(d.clientId);
+              return `${c?.short||'?'} · ${d.type}`;
+            }).join(' &nbsp;·&nbsp; ')}
+            ${docs.length > 3 ? ` and ${docs.length-3} more` : ''}
+          </div>
+        </div>
+      </div>`;
+    };
+
+    const rows = [
+      _docRow(expired,     'var(--red)',   'var(--red-light)',   'rgba(192,57,43,0.25)',   'ti-alert-circle',   'already expired'),
+      _docRow(expiringSoon,'var(--amber)', 'var(--amber-light)', 'rgba(183,105,26,0.25)', 'ti-alert-triangle', 'expiring within 30 days'),
+    ].filter(Boolean).join('');
+
+    if (rows) {
+      alertEl.style.display = '';
+      alertEl.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:4px">${rows}</div>`;
     } else {
       alertEl.style.display = 'none';
     }
@@ -2992,9 +4079,32 @@ function renderDocuments() {
     return;
   }
 
-  /* Group by client */
+  /* Apply filter then group by client */
+  const filtered = State.documents.filter(d => {
+    if (_docFilter === 'all')      return true;
+    if (_docFilter === 'expired')  return d.expiryDate && d.expiryDate < today;
+    if (_docFilter === 'expiring') return d.expiryDate && d.expiryDate >= today && d.expiryDate <= soon;
+    if (_docFilter === 'valid')    return !d.expiryDate || d.expiryDate > soon;
+    return true;
+  });
+
+  if (!filtered.length) {
+    el.innerHTML = `<div class="empty-state">
+      <i class="ti ti-file-certificate"></i>
+      <p>No ${_docFilter === 'all' ? '' : _docFilter + ' '}documents found.</p>
+    </div>`;
+    return;
+  }
+
+  /* Sort: expired first, then by expiry date ascending, then no-expiry last */
+  const sortedFiltered = filtered.slice().sort((a, b) => {
+    const aExp = a.expiryDate || '9999-12-31';
+    const bExp = b.expiryDate || '9999-12-31';
+    return aExp.localeCompare(bExp);
+  });
+
   const groups = {};
-  State.documents.forEach(d => {
+  sortedFiltered.forEach(d => {
     (groups[d.clientId] = groups[d.clientId] || []).push(d);
   });
 
@@ -3088,7 +4198,7 @@ function openEditDocumentModal(docId) {
 }
 
 function closeDocumentModal() {
-  document.getElementById('document-form-modal').classList.remove('open');
+  _closeModal('document-form-modal');
   editDocumentId = null;
 }
 
@@ -3155,143 +4265,13 @@ const CLOSE_TEMPLATES = [
   { title: 'Accounts payable review', priority: 'medium' },
 ];
 
-function renderClosePage() {
-  /* Default month = previous month */
-  const now  = new Date();
-  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const defaultMonth = prev.toISOString().slice(0, 7);
-
-  const monthEl = document.getElementById('cl-month');
-  if (monthEl && !monthEl.value) monthEl.value = defaultMonth;
-
-  /* Assignee dropdown */
-  const asel = document.getElementById('cl-assignee');
-  if (asel) {
-    asel.innerHTML = State.users.map(u =>
-      `<option value="${u.id}">${u.name} (${u.role})</option>`
-    ).join('');
-  }
-
-  /* Task type checkboxes */
-  const tlist = document.getElementById('cl-task-list');
-  if (tlist) {
-    tlist.innerHTML = CLOSE_TEMPLATES.map((t, i) => {
-      const badgeCls = t.priority === 'high'
-        ? 'background:var(--red-light);color:var(--red)'
-        : 'background:var(--amber-light);color:var(--amber)';
-      return `
-      <div class="close-check-item checked" id="clt-${i}" onclick="toggleCloseItem(this,'clt-${i}')">
-        <input type="checkbox" checked data-title="${t.title}" data-priority="${t.priority}">
-        <div class="close-check-box"><i class="ti ti-check" style="font-size:9px"></i></div>
-        <span class="close-check-label">${t.title}</span>
-        <span class="close-check-badge" style="${badgeCls}">${t.priority}</span>
-      </div>`;
-    }).join('');
-  }
-
-  /* Client checkboxes */
-  const clist = document.getElementById('cl-client-list');
-  if (clist) {
-    clist.innerHTML = State.clients.map(c => `
-      <div class="close-check-item checked" id="clc-${c.id}" onclick="toggleCloseItem(this,'clc-${c.id}')">
-        <input type="checkbox" checked value="${c.id}">
-        <div class="close-check-box"><i class="ti ti-check" style="font-size:9px"></i></div>
-        <div style="width:10px;height:10px;border-radius:50%;background:${c.color};flex-shrink:0"></div>
-        <span class="close-check-label">${c.name}</span>
-        <span class="close-check-badge" style="background:${c.bg};color:${c.color};font-family:var(--mono)">${c.short}</span>
-      </div>`).join('');
-  }
-
-  document.getElementById('cl-result').style.display = 'none';
-  updateCloseLabel();
-}
-
-function toggleCloseItem(el, id) {
-  el.classList.toggle('checked');
-  el.querySelector('input').checked = el.classList.contains('checked');
-  updateCloseLabel();
-}
-
-let _allClientsSelected = true;
-function toggleAllClients() {
-  _allClientsSelected = !_allClientsSelected;
-  document.querySelectorAll('#cl-client-list .close-check-item').forEach(el => {
-    el.classList.toggle('checked', _allClientsSelected);
-    el.querySelector('input').checked = _allClientsSelected;
-  });
-  document.getElementById('cl-toggle-btn').textContent =
-    _allClientsSelected ? 'Deselect all' : 'Select all';
-  updateCloseLabel();
-}
-
-function updateCloseLabel() {
-  const tasks   = document.querySelectorAll('#cl-task-list   .close-check-item.checked').length;
-  const clients = document.querySelectorAll('#cl-client-list .close-check-item.checked').length;
-  const total   = tasks * clients;
-  const lbl     = document.getElementById('cl-count-label');
-  if (lbl) lbl.textContent = total > 0 ? `${total} task${total !== 1 ? 's' : ''} will be created` : '';
-  const genLbl = document.getElementById('cl-gen-label');
-  if (genLbl) genLbl.textContent = total > 0 ? `Generate ${total} tasks` : 'Generate checklist';
-}
+/* Monthly Close removed — use Recurring Templates instead */
 
 function _lastDayOfMonth(yearMonth) {
   const [y, m] = yearMonth.split('-').map(Number);
   return new Date(y, m, 0).toISOString().slice(0, 10);
 }
 
-async function generateCloseChecklist() {
-  const month      = document.getElementById('cl-month').value;
-  const assigneeId = document.getElementById('cl-assignee').value;
-
-  if (!month)      { toast('Please select a month', 'error');    return; }
-  if (!assigneeId) { toast('Please select an assignee', 'error'); return; }
-
-  const selectedTaskEls   = Array.from(document.querySelectorAll('#cl-task-list   .close-check-item.checked input'));
-  const selectedClientEls = Array.from(document.querySelectorAll('#cl-client-list .close-check-item.checked input'));
-
-  if (!selectedTaskEls.length)   { toast('Select at least one task type', 'error');   return; }
-  if (!selectedClientEls.length) { toast('Select at least one client', 'error'); return; }
-
-  const monthLabel = _monthLabel(month);
-  const dueDate    = _lastDayOfMonth(month);
-
-  const btn = document.getElementById('cl-gen-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Creating tasks…'; }
-
-  const created = [];
-  for (const clientEl of selectedClientEls) {
-    for (const taskEl of selectedTaskEls) {
-      const titleKey = `${taskEl.dataset.title} — ${monthLabel}`;
-      const exists   = State.tasks.some(t => t.title === titleKey && t.clientId === clientEl.value);
-      if (exists) continue;
-      const task = await State.addTask({
-        title:      titleKey,
-        clientId:   clientEl.value,
-        assigneeId,
-        type:       'monthly',
-        priority:   taskEl.dataset.priority,
-        dueDate,
-        notes:      `Monthly close · ${monthLabel}`,
-        status:     'pending',
-      });
-      created.push(task);
-    }
-  }
-
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-sparkles"></i> <span id="cl-gen-label">Generate checklist</span>';
-    updateCloseLabel();
-  }
-
-  toast(`${created.length} tasks created for ${monthLabel}!`);
-
-  const result = document.getElementById('cl-result');
-  result.style.display = '';
-  document.getElementById('cl-result-title').textContent =
-    `${created.length} tasks generated for ${monthLabel}`;
-  renderTaskList(created, 'cl-task-results');
-}
 
 /* ═══════════════════════════════════════════════════════════
    STAGE COLOUR PICKER
@@ -3639,15 +4619,16 @@ function switchClientTab(tab, el) {
 }
 
 function _renderClientTab(clientId, tab) {
-  if (tab === 'overview')   _renderCPOverview(clientId);
-  else if (tab === 'notes') _renderCPNotes(clientId);
-  else if (tab === 'tasks') _renderCPTasks(clientId);
-  else if (tab === 'documents') _renderCPDocuments(clientId);
-  else if (tab === 'time')  _renderCPTime(clientId);
+  if (tab === 'overview')          _renderCPOverview(clientId);
+  else if (tab === 'notes')        _renderCPNotes(clientId);
+  else if (tab === 'tasks')        _renderCPTasks(clientId);
+  else if (tab === 'shareholders') _renderCPShareholders(clientId);
+  else if (tab === 'documents')    _renderCPDocuments(clientId);
+  else if (tab === 'time')         _renderCPTime(clientId);
 }
 
 function closeClientProfile() {
-  document.getElementById('client-profile-modal').classList.remove('open');
+  _closeModal('client-profile-modal');
   _clientProfileId   = null;
   _clientProfileEdit = false;
 }
@@ -3760,6 +4741,17 @@ function _renderCPOverview(clientId) {
       <div class="cp-section-title"><i class="ti ti-building" style="font-size:11px"></i> Business details</div>
       <div class="cp-grid">
         ${_cpField('Trade License', c.tradeLicense)}
+        ${(function() {
+          if (!c.tradeLicenseExpiry) return _cpField('TL Expiry', '');
+          const today30 = new Date(); today30.setDate(today30.getDate() + 30);
+          const expDate = new Date(c.tradeLicenseExpiry);
+          const isExp   = expDate < new Date();
+          const isSoon  = !isExp && expDate <= today30;
+          const badge   = isExp  ? ' <span style="color:var(--red);font-size:10px;font-weight:700">EXPIRED</span>'
+                        : isSoon ? ' <span style="color:var(--amber);font-size:10px;font-weight:700">EXPIRING SOON</span>'
+                        : '';
+          return _cpField('TL Expiry', fmtDate(c.tradeLicenseExpiry) + badge);
+        })()}
         ${_cpField('TRN', c.trn)}
         ${_cpField('CT Number', c.corporateTaxNo)}
         ${_cpField('Incorporated', c.incorporationDate ? fmtDate(c.incorporationDate) : '')}
@@ -3957,14 +4949,18 @@ function _renderClientProfileEdit(clientId) {
     <div class="divider"></div>
     <div class="section-title" style="margin-bottom:12px">Business details</div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Trade License</label>
+      <div class="form-group"><label class="form-label">Trade License No.</label>
         <input type="text" id="cpe-tl" class="form-input" value="${esc(c.tradeLicense||'')}"></div>
-      <div class="form-group"><label class="form-label">TRN</label>
-        <input type="text" id="cpe-trn" class="form-input" value="${esc(c.trn||'')}" style="font-family:var(--mono)"></div>
+      <div class="form-group"><label class="form-label">Trade License Expiry</label>
+        <input type="date" id="cpe-tl-expiry" class="form-input" value="${c.tradeLicenseExpiry||''}"></div>
     </div>
     <div class="form-row">
+      <div class="form-group"><label class="form-label">TRN</label>
+        <input type="text" id="cpe-trn" class="form-input" value="${esc(c.trn||'')}" style="font-family:var(--mono)"></div>
       <div class="form-group"><label class="form-label">CT Number</label>
         <input type="text" id="cpe-vat" class="form-input" value="${esc(c.corporateTaxNo||'')}" style="font-family:var(--mono)"></div>
+    </div>
+    <div class="form-row">
       <div class="form-group"><label class="form-label">Classification</label>
         <select id="cpe-class" class="form-select">
           <option value="Mainland" ${(c.classification||'Mainland')==='Mainland'?'selected':''}>Mainland</option>
@@ -4049,7 +5045,8 @@ async function saveClientProfile(clientId) {
     short:                (document.getElementById('cpe-short')?.value.trim() || State.getClient(clientId)?.short).toUpperCase(),
     color:                newColor,
     bg:                   hexToRgba(newColor, 0.12),
-    tradeLicense:         document.getElementById('cpe-tl').value.trim(),
+    tradeLicense:         document.getElementById('cpe-tl')?.value.trim() || '',
+    tradeLicenseExpiry:   document.getElementById('cpe-tl-expiry')?.value || '',
     trn:                  document.getElementById('cpe-trn').value.trim(),
     corporateTaxNo:       document.getElementById('cpe-vat').value.trim(),
     classification:       document.getElementById('cpe-class').value,
@@ -4070,6 +5067,7 @@ async function saveClientProfile(clientId) {
   const btn = document.querySelector('#cp-body .btn-primary');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
   await State.updateClient(clientId, patch);
+  await _syncTradeLicenseDoc(clientId, patch.tradeLicense, patch.tradeLicenseExpiry);
   toast('Client profile saved!');
   _clientProfileEdit = false;
   document.getElementById('cp-edit-btn').innerHTML = '<i class="ti ti-edit"></i> Edit';
@@ -4079,6 +5077,384 @@ async function saveClientProfile(clientId) {
 }
 
 /* ── Client profile tab renderers ───────────────────────── */
+/* ══════════════════════════════════════════════════════════
+   SHAREHOLDERS TAB  — per-shareholder multi-document model
+   Each shareholder has their own documents array.
+   All documents with expiry sync to the global Documents table
+   so sidebar badges, health scores & expiry warnings all work.
+   ══════════════════════════════════════════════════════════ */
+const _SH_DOC_TYPES = [
+  'Emirates ID', 'Passport', 'Residency Visa',
+  'Investor Visa', 'Entry Permit', 'Trade License', 'Other'
+];
+
+/* ── helpers ─────────────────────────────────────────────── */
+function _shExpiryBadge(expiry) {
+  if (!expiry) return '';
+  const today = new Date().toISOString().slice(0,10);
+  const soon  = new Date(Date.now() + 60 * 86400000).toISOString().slice(0,10);
+  if (expiry < today)  return '<span class="sh-badge sh-expired">Expired</span>';
+  if (expiry <= soon)  return '<span class="sh-badge sh-expiring">Expiring soon</span>';
+  return '<span class="sh-badge sh-valid">Valid</span>';
+}
+
+function _shUID() {
+  return 'sh' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+/* ── main render ─────────────────────────────────────────── */
+function _renderCPShareholders(clientId) {
+  const el           = document.getElementById('cp-body');
+  const c            = State.getClient(clientId);
+  const isAdmin      = State.user?.role === 'admin';
+  const shareholders = c?.shareholders || [];
+
+  /* Build shareholder cards */
+  const cards = shareholders.length
+    ? shareholders.map(function(sh, si) {
+        const docs    = sh.documents || [];
+        const hasExp  = docs.some(function(d){ return d.expiryDate; });
+        const expBadge= docs.reduce(function(worst, d) {
+          const b = _shExpiryBadge(d.expiryDate);
+          if (b.includes('sh-expired'))  return '<span class="sh-badge sh-expired">Has expired</span>';
+          if (b.includes('sh-expiring') && !worst.includes('sh-expired'))
+            return '<span class="sh-badge sh-expiring">Expiring soon</span>';
+          return worst;
+        }, '');
+
+        const docTypeOpts = _SH_DOC_TYPES.map(function(t){ return '<option>' + t + '</option>'; }).join('');
+
+        const docRows = docs.length
+          ? docs.map(function(d, di) {
+              return '<div class="sh-doc-row">'
+                + '<div class="sh-doc-type">' + esc(d.type||'') + '</div>'
+                + '<div class="sh-doc-num">' + (d.number ? esc(d.number) : '—') + '</div>'
+                + '<div class="sh-doc-exp">'
+                +   (d.expiryDate ? fmtDate(d.expiryDate) : '—')
+                +   ' ' + _shExpiryBadge(d.expiryDate)
+                + '</div>'
+                + (isAdmin
+                  ? '<div class="sh-doc-actions">'
+                    + '<button class="btn btn-ghost btn-sm" onclick="shEditDoc(\'' + clientId + '\',' + si + ',' + di + ')" title="Edit"><i class="ti ti-edit" style="font-size:11px"></i></button>'
+                    + '<button class="btn btn-danger btn-sm" onclick="shDeleteDoc(\'' + clientId + '\',' + si + ',' + di + ')" title="Delete"><i class="ti ti-trash" style="font-size:11px"></i></button>'
+                  + '</div>'
+                  : '')
+                + '</div>';
+            }).join('')
+          : '<div style="font-size:12px;color:var(--ink-4);padding:8px 0">No documents yet'
+            + (isAdmin ? ' — click <strong>Add document</strong>' : '') + '</div>';
+
+        return '<div class="sh-card" id="sh-card-' + si + '">'
+          /* Shareholder header */
+          + '<div class="sh-card-head">'
+          +   '<div class="sh-avatar">' + (sh.name||'?').charAt(0).toUpperCase() + '</div>'
+          +   '<div style="flex:1;min-width:0">'
+          +     '<div class="sh-name">' + esc(sh.name||'') + '</div>'
+          +     '<div class="sh-meta">'
+          +       (sh.nationality ? esc(sh.nationality) : '')
+          +       (sh.sharePercent != null ? (sh.nationality ? ' · ' : '') + sh.sharePercent + '% share' : '')
+          +     '</div>'
+          +   '</div>'
+          +   expBadge
+          +   '<button class="btn btn-ghost btn-sm" onclick="shCopyToClipboard(' + si + ',\'' + clientId + '\')" title="Copy shareholder to another client" style="color:var(--accent)">'
+          +     '<i class="ti ti-copy"></i>'
+          +   '</button>'
+          +   (isAdmin
+              ? '<button class="btn btn-ghost btn-sm" onclick="shEditPerson(\'' + clientId + '\',' + si + ')" title="Edit shareholder"><i class="ti ti-edit"></i></button>'
+                + '<button class="btn btn-danger btn-sm" onclick="shDeletePerson(\'' + clientId + '\',' + si + ')" title="Remove"><i class="ti ti-trash"></i></button>'
+              : '')
+          + '</div>'
+
+          /* Documents sub-section */
+          + '<div class="sh-docs-section">'
+          +   '<div class="sh-docs-header">'
+          +     '<span style="font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.5px">Documents</span>'
+          +     (isAdmin
+                ? '<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="shOpenDocForm(\'' + clientId + '\',' + si + ')">'
+                  + '<i class="ti ti-plus"></i> Add document</button>'
+                : '')
+          +   '</div>'
+
+          /* Inline doc form */
+          +   '<div id="sh-doc-form-' + si + '" class="sh-doc-form" style="display:none">'
+          +     '<div class="sh-doc-form-grid">'
+          +       '<div class="form-group"><label class="form-label">Document type</label>'
+          +         '<select id="sh-df-type-' + si + '" class="form-select">' + docTypeOpts + '</select></div>'
+          +       '<div class="form-group"><label class="form-label">Number / Reference</label>'
+          +         '<input id="sh-df-num-' + si + '" class="form-input" placeholder="e.g. 784-1234-XXXXXXX-X" style="font-family:var(--mono)"></div>'
+          +       '<div class="form-group"><label class="form-label">Expiry date</label>'
+          +         '<input id="sh-df-exp-' + si + '" type="date" class="form-input"></div>'
+          +     '</div>'
+          +     '<div style="display:flex;gap:7px;justify-content:flex-end;margin-top:8px">'
+          +       '<button class="btn btn-ghost btn-sm" onclick="shCloseDocForm(' + si + ')">Cancel</button>'
+          +       '<button class="btn btn-primary btn-sm" onclick="shSaveDoc(\'' + clientId + '\',' + si + ')">'
+          +         '<i class="ti ti-check"></i> Save</button>'
+          +     '</div>'
+          +   '</div>'
+
+          /* Doc table */
+          +   '<div class="sh-doc-table">'
+          +     '<div class="sh-doc-header"><div>Type</div><div>Number</div><div>Expiry</div>' + (isAdmin ? '<div></div>' : '') + '</div>'
+          +     docRows
+          +   '</div>'
+          + '</div>'
+          + '</div>';
+      }).join('')
+    : '<div class="sh-empty"><i class="ti ti-users" style="font-size:28px;opacity:0.2;display:block;margin-bottom:8px"></i>'
+      + 'No shareholders yet' + (isAdmin ? ' — click <strong>Add shareholder</strong>' : '') + '</div>';
+
+  el.innerHTML =
+    '<div class="cp-tab-content">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+    +   '<div style="font-size:13px;font-weight:600;color:var(--ink)">'
+    +     shareholders.length + ' shareholder' + (shareholders.length !== 1 ? 's' : '')
+    +   '</div>'
+    +   (isAdmin
+        ? '<div style="display:flex;gap:6px">'
+          + (_shClipboard
+              ? '<button class="btn btn-ghost btn-sm" onclick="shPasteFromClipboard(\'' + clientId + '\')"'
+                + ' style="border-color:var(--accent);color:var(--accent)">'
+                + '<i class="ti ti-clipboard"></i> Paste: ' + esc(_shClipboard.name) + '</button>'
+              : '')
+          + '<button class="btn btn-primary btn-sm" onclick="shOpenPersonForm(\'' + clientId + '\')">'
+          + '<i class="ti ti-user-plus"></i> Add shareholder</button>'
+          + '</div>'
+        : '')
+    + '</div>'
+
+    /* Add/edit shareholder person form */
+    + '<div id="sh-person-form" class="sh-form" style="display:none">'
+    +   '<div class="sh-form-grid">'
+    +     '<div class="form-group"><label class="form-label">Full name <span style="color:var(--red)">*</span></label>'
+    +       '<input id="sh-pf-name" class="form-input" placeholder="e.g. Ahmed Al Rashid"></div>'
+    +     '<div class="form-group"><label class="form-label">Nationality</label>'
+    +       '<input id="sh-pf-nat" class="form-input" placeholder="e.g. UAE"></div>'
+    +     '<div class="form-group"><label class="form-label">Share %</label>'
+    +       '<input id="sh-pf-share" type="number" class="form-input" min="0" max="100" step="0.01" placeholder="e.g. 51"></div>'
+    +   '</div>'
+    +   '<div style="display:flex;gap:7px;justify-content:flex-end;margin-top:10px">'
+    +     '<button class="btn btn-ghost btn-sm" onclick="shClosePersonForm()">Cancel</button>'
+    +     '<button class="btn btn-primary btn-sm" id="sh-pf-save" onclick="shSavePerson(\'' + clientId + '\')">'
+    +       '<i class="ti ti-check"></i> Save</button>'
+    +   '</div>'
+    + '</div>'
+
+    + cards
+    + '</div>';
+}
+
+/* ── Shareholder clipboard (copy/paste across clients) ────── */
+let _shClipboard = null; /* stores a copied shareholder object */
+
+function shCopyToClipboard(si, clientId) {
+  const c  = State.getClient(clientId);
+  const sh = (c?.shareholders || [])[si];
+  if (!sh) return;
+  /* Deep copy — give new IDs so it's independent */
+  _shClipboard = JSON.parse(JSON.stringify(sh));
+  toast('Shareholder "' + sh.name + '" copied — open another client to paste');
+  /* Re-render current tab to show paste button */
+  _renderCPShareholders(clientId);
+}
+
+async function shPasteFromClipboard(clientId) {
+  if (!_shClipboard) return;
+  const c            = State.getClient(clientId);
+  const shareholders = JSON.parse(JSON.stringify(c?.shareholders || []));
+
+  /* Check if already added */
+  const exists = shareholders.some(function(s){
+    return s.name.toLowerCase() === _shClipboard.name.toLowerCase();
+  });
+  if (exists) {
+    toast('"' + _shClipboard.name + '" is already a shareholder of this client', 'error');
+    return;
+  }
+
+  /* Generate fresh IDs for the pasted shareholder and their docs */
+  const pasted = JSON.parse(JSON.stringify(_shClipboard));
+  pasted.id    = _shUID();
+  pasted.sharePercent = null; /* reset share % — will differ per client */
+  if (Array.isArray(pasted.documents)) {
+    pasted.documents = pasted.documents.map(function(d) {
+      return Object.assign({}, d, { id: _shUID() });
+    });
+  }
+
+  shareholders.push(pasted);
+  await State.updateClient(clientId, { shareholders });
+  await _syncShareholderDocs(clientId, shareholders);
+  _renderCPShareholders(clientId);
+  toast('"' + pasted.name + '" pasted with ' + (pasted.documents?.length || 0) + ' document(s). Update share % if needed.');
+}
+
+/* ── Shareholder person CRUD ─────────────────────────────── */
+let _shPersonEditIdx = null;
+let _shDocEditIdx    = null;   /* doc index within shareholder */
+
+function shOpenPersonForm(clientId) {
+  _shPersonEditIdx = null;
+  ['sh-pf-name','sh-pf-nat','sh-pf-share'].forEach(id => { const e = document.getElementById(id); if(e) e.value=''; });
+  const f = document.getElementById('sh-person-form');
+  if (f) { f.style.display = ''; document.getElementById('sh-pf-name')?.focus(); }
+}
+
+function shEditPerson(clientId, si) {
+  _shPersonEditIdx = si;
+  const sh = (State.getClient(clientId)?.shareholders || [])[si];
+  if (!sh) return;
+  document.getElementById('sh-pf-name').value  = sh.name         || '';
+  document.getElementById('sh-pf-nat').value   = sh.nationality  || '';
+  document.getElementById('sh-pf-share').value = sh.sharePercent != null ? sh.sharePercent : '';
+  const f = document.getElementById('sh-person-form');
+  if (f) { f.style.display = ''; document.getElementById('sh-pf-name')?.focus(); }
+}
+
+function shClosePersonForm() {
+  const f = document.getElementById('sh-person-form');
+  if (f) f.style.display = 'none';
+  _shPersonEditIdx = null;
+}
+
+async function shSavePerson(clientId) {
+  const name = (document.getElementById('sh-pf-name')?.value || '').trim();
+  if (!name) { toast('Name is required', 'error'); return; }
+  const c            = State.getClient(clientId);
+  const shareholders = JSON.parse(JSON.stringify(c?.shareholders || []));
+
+  if (_shPersonEditIdx !== null) {
+    shareholders[_shPersonEditIdx].name         = name;
+    shareholders[_shPersonEditIdx].nationality  = (document.getElementById('sh-pf-nat')?.value||'').trim();
+    shareholders[_shPersonEditIdx].sharePercent = parseFloat(document.getElementById('sh-pf-share')?.value)||null;
+  } else {
+    shareholders.push({
+      id:           _shUID(),
+      name,
+      nationality:  (document.getElementById('sh-pf-nat')?.value||'').trim(),
+      sharePercent: parseFloat(document.getElementById('sh-pf-share')?.value)||null,
+      documents:    [],
+    });
+  }
+
+  const btn = document.getElementById('sh-pf-save');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Saving…'; }
+  await State.updateClient(clientId, { shareholders });
+  shClosePersonForm();
+  _renderCPShareholders(clientId);
+  toast('Shareholder saved!');
+}
+
+async function shDeletePerson(clientId, si) {
+  if (!confirm('Remove this shareholder and all their documents?')) return;
+  const c            = State.getClient(clientId);
+  const shareholders = (c?.shareholders||[]).filter(function(_,i){ return i!==si; });
+  await State.updateClient(clientId, { shareholders });
+  await _syncShareholderDocs(clientId, shareholders);
+  _renderCPShareholders(clientId);
+  toast('Shareholder removed');
+}
+
+/* ── Per-shareholder document CRUD ──────────────────────── */
+function shOpenDocForm(clientId, si) {
+  _shDocEditIdx = null;
+  ['sh-df-num-'+si,'sh-df-exp-'+si].forEach(function(id){
+    const e = document.getElementById(id); if(e) e.value='';
+  });
+  const typeEl = document.getElementById('sh-df-type-'+si);
+  if (typeEl) typeEl.value = 'Emirates ID';
+  const f = document.getElementById('sh-doc-form-'+si);
+  if (f) { f.style.display = ''; document.getElementById('sh-df-type-'+si)?.focus(); }
+}
+
+function shEditDoc(clientId, si, di) {
+  _shDocEditIdx = di;
+  const sh  = (State.getClient(clientId)?.shareholders||[])[si];
+  const doc = (sh?.documents||[])[di];
+  if (!doc) return;
+  const typeEl = document.getElementById('sh-df-type-'+si);
+  const numEl  = document.getElementById('sh-df-num-'+si);
+  const expEl  = document.getElementById('sh-df-exp-'+si);
+  if (typeEl) typeEl.value = doc.type       || 'Emirates ID';
+  if (numEl)  numEl.value  = doc.number     || '';
+  if (expEl)  expEl.value  = doc.expiryDate || '';
+  const f = document.getElementById('sh-doc-form-'+si);
+  if (f) { f.style.display = ''; typeEl?.focus(); }
+}
+
+function shCloseDocForm(si) {
+  const f = document.getElementById('sh-doc-form-'+si);
+  if (f) f.style.display = 'none';
+  _shDocEditIdx = null;
+}
+
+async function shSaveDoc(clientId, si) {
+  const type   = document.getElementById('sh-df-type-'+si)?.value || 'Emirates ID';
+  const number = (document.getElementById('sh-df-num-'+si)?.value  || '').trim();
+  const expiry = document.getElementById('sh-df-exp-'+si)?.value   || '';
+
+  const c            = State.getClient(clientId);
+  const shareholders = JSON.parse(JSON.stringify(c?.shareholders || []));
+  if (!shareholders[si]) return;
+
+  const docs = shareholders[si].documents || [];
+  const newDoc = { id: _shUID(), type, number, expiryDate: expiry };
+
+  if (_shDocEditIdx !== null) {
+    newDoc.id = docs[_shDocEditIdx].id;
+    docs[_shDocEditIdx] = newDoc;
+  } else {
+    docs.push(newDoc);
+  }
+  shareholders[si].documents = docs;
+
+  await State.updateClient(clientId, { shareholders });
+  await _syncShareholderDocs(clientId, shareholders);
+  shCloseDocForm(si);
+  _renderCPShareholders(clientId);
+  toast('Document saved!');
+}
+
+async function shDeleteDoc(clientId, si, di) {
+  if (!confirm('Delete this document?')) return;
+  const c            = State.getClient(clientId);
+  const shareholders = JSON.parse(JSON.stringify(c?.shareholders || []));
+  shareholders[si].documents = (shareholders[si].documents||[]).filter(function(_,i){ return i!==di; });
+  await State.updateClient(clientId, { shareholders });
+  await _syncShareholderDocs(clientId, shareholders);
+  _renderCPShareholders(clientId);
+  toast('Document removed');
+}
+
+/* ── Sync all shareholder docs → global Documents table ──── */
+async function _syncShareholderDocs(clientId, shareholders) {
+  for (const sh of shareholders) {
+    for (const doc of (sh.documents || [])) {
+      if (!doc.expiryDate) continue;
+      /* Unique key: clientId + shareholderId + docId */
+      const noteKey = 'SH:' + sh.id + ':' + doc.id;
+      const existing = State.documents.find(function(d){
+        return d.clientId === clientId && d.notes === noteKey;
+      });
+      if (existing) {
+        await State.updateDocument(existing.id, {
+          type:       doc.type,
+          number:     doc.number || '',
+          expiryDate: doc.expiryDate,
+          notes:      noteKey,
+        });
+      } else {
+        await State.addDocument({
+          clientId,
+          type:       doc.type,
+          number:     doc.number || '',
+          expiryDate: doc.expiryDate,
+          notes:      noteKey,
+        });
+      }
+    }
+  }
+}
+
 function _renderCPNotes(clientId) {
   const el    = document.getElementById('cp-body');
   const notes = State.getClientNotes(clientId);
@@ -4270,8 +5646,10 @@ function _renderTemplatChecklist() {
   el.innerHTML = _tmfSubtasks.map((text, i) => `
     <div style="display:flex;align-items:center;gap:7px;background:var(--bg);
       border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px">
-      <i class="ti ti-check" style="font-size:11px;color:var(--accent)"></i>
-      <span style="flex:1;font-size:12.5px;color:var(--ink)">${esc(text)}</span>
+      <i class="ti ti-check" style="font-size:11px;color:var(--accent);flex-shrink:0"></i>
+      <input class="subtask-text-input" value="${esc(text)}" style="flex:1"
+        onchange="_tmfSubtasks[${i}]=this.value.trim()||_tmfSubtasks[${i}]"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">
       <button type="button" class="subtask-del" style="opacity:1" onclick="removeTemplateChecklistItem(${i})">
         <i class="ti ti-x"></i>
       </button>
@@ -4515,9 +5893,10 @@ function setRecurrenceType(type) {
     const btn = document.getElementById('rec-' + t);
     if (!btn) return;
     const on = (t === type);
-    btn.style.background  = on ? 'var(--ink)' : '';
-    btn.style.color       = on ? 'var(--bg-sidebar)' : '';
-    btn.style.borderColor = on ? 'var(--ink)' : '';
+    btn.style.background  = on ? 'linear-gradient(135deg,#81D8D0,#3db5ad)' : '';
+    btn.style.color       = on ? '#1a2e2c' : '';
+    btn.style.borderColor = on ? 'transparent' : '';
+    btn.style.fontWeight  = on ? '700' : '';
   });
 
   /* Show/hide option panels */
@@ -4664,7 +6043,7 @@ function openEditReminderModal(remId) {
 }
 
 function closeReminderModal() {
-  document.getElementById('reminder-form-modal').classList.remove('open');
+  _closeModal('reminder-form-modal');
   _editReminderId = null;
 }
 
@@ -4793,12 +6172,22 @@ async function _fetchNewMessages() {
 }
 
 function _getChannelMsgs(channelId) {
-  if (channelId === 'team') return State.messages.filter(m => m.channel === 'team');
-  const myId = State.user?.id;
-  return State.messages.filter(m =>
-    (m.fromUserId === myId  && m.channel === channelId) ||
-    (m.fromUserId === channelId && m.channel === myId)
-  );
+  let msgs;
+  if (channelId === 'team') {
+    msgs = State.messages.filter(m => m.channel === 'team');
+  } else {
+    const myId = State.user?.id;
+    msgs = State.messages.filter(m =>
+      (m.fromUserId === myId  && m.channel === channelId) ||
+      (m.fromUserId === channelId && m.channel === myId)
+    );
+  }
+  /* Sort chronologically by message ID (contains Date.now() timestamp) */
+  return msgs.sort(function(a, b) {
+    const aNum = parseInt((a.id || '').replace('msg','')) || 0;
+    const bNum = parseInt((b.id || '').replace('msg','')) || 0;
+    return aNum - bNum;
+  });
 }
 
 function _unreadCount(channelId) {
@@ -4843,9 +6232,14 @@ async function loadChatMessages(channelId) {
   await _fetchNewMessages();
   renderChatMessages(channelId);
   const msgs = _getChannelMsgs(channelId);
-  if (msgs.length) _chatLastRead[channelId] = msgs[msgs.length - 1].id;
+  if (msgs.length) _markChannelRead(channelId, msgs[msgs.length - 1].id);
   updateChatBadge();
   renderChatChannels();
+}
+
+function _markChannelRead(channelId, msgId) {
+  _chatLastRead[channelId] = msgId;
+  try { localStorage.setItem('ofiz_chat_read', JSON.stringify(_chatLastRead)); } catch(e) {}
 }
 
 function renderChatMessages(channelId) {
@@ -4911,7 +6305,7 @@ async function sendChatMessage() {
   };
 
   State.messages.push(msg);
-  _chatLastRead[_chatChannel] = msg.id;
+  _markChannelRead(_chatChannel, msg.id);
   renderChatMessages(_chatChannel);
   if (State.useSheets) Sheets.sendMessage(msg);
 }
@@ -4922,3 +6316,320 @@ function updateChatBadge() {
   const badge    = document.getElementById('chat-badge');
   if (badge) { badge.textContent = total || ''; badge.style.display = total ? '' : 'none'; }
 }
+
+
+/* ══════════════════════════════════════════════════════════
+   NOTEPAD — scratch pad + sticky notes (localStorage)
+   Google Keep-inspired design
+   ══════════════════════════════════════════════════════════ */
+/* Keys are per-user — each person sees only their own notes */
+function _npScratchKey() { return 'ofiz_notepad_scratch_' + (State.user?.id || 'guest'); }
+function _npStickyKey()  { return 'ofiz_notepad_stickies_' + (State.user?.id || 'guest'); }
+/* Legacy aliases for saveNotepadScratch() compatibility */
+const _NP_SCRATCH = 'ofiz_notepad_scratch'; /* unused after migration */
+const _NP_STICKY  = 'ofiz_notepad_stickies'; /* unused after migration */
+
+/* Soft pastel palette matching OFIZ brand */
+const _NP_COLORS = [
+  { id:'yellow', bg:'#fef9c3', accent:'#d97706', label:'Yellow' },
+  { id:'teal',   bg:'#ccfbf1', accent:'#0f766e', label:'Teal'   },
+  { id:'blue',   bg:'#dbeafe', accent:'#1d4ed8', label:'Blue'   },
+  { id:'pink',   bg:'#fce7f3', accent:'#be185d', label:'Pink'   },
+  { id:'purple', bg:'#ede9fe', accent:'#6d28d9', label:'Purple' },
+  { id:'peach',  bg:'#ffedd5', accent:'#c2410c', label:'Peach'  },
+  { id:'white',  bg:'#f8fafc', accent:'#475569', label:'White'  },
+];
+
+function _npGetStickies() {
+  try { return JSON.parse(localStorage.getItem(_npStickyKey()) || '[]'); }
+  catch(e) { return []; }
+}
+function _npSave(arr) { localStorage.setItem(_npStickyKey(), JSON.stringify(arr)); }
+function _npColor(id) { return _NP_COLORS.find(c => c.id === id) || _NP_COLORS[0]; }
+
+/* ── Main render entry point ────────────────────────────── */
+function renderNotepad() {
+  const el = document.getElementById('page-notepad');
+  if (!el) return;
+
+  /* Pre-build color dots HTML — avoids nested template literals */
+  const colorDots = _NP_COLORS.map(function(c) {
+    return '<button class="np-color-dot" data-color="' + c.id + '"'
+      + ' style="background:' + c.bg + ';border-color:' + c.accent + '"'
+      + ' title="' + c.label + '"'
+      + ' onclick="npSetNewColor(\'' + c.id + '\')"></button>';
+  }).join('');
+
+  const notes   = _npGetStickies();
+  const pinned  = notes.filter(function(n){ return n.pinned; });
+  const regular = notes.filter(function(n){ return !n.pinned; });
+  const count   = notes.length;
+
+  el.innerHTML =
+    '<div class="np-layout">'
+
+    /* ── LEFT: Scratch pad ── */
+    + '<div class="np-scratch-col">'
+    +   '<div class="np-col-head">'
+    +     '<i class="ti ti-pencil"></i> Scratch pad'
+    +     '<span class="np-autosave-badge">auto-saves</span>'
+    +   '</div>'
+    +   '<textarea id="np-scratch" class="np-scratch-area"'
+    +     ' placeholder="Jot anything here — quick thoughts, copy-paste, to-do lists…"'
+    +     ' oninput="localStorage.setItem(_npScratchKey(),this.value)"></textarea>'
+    + '</div>'
+
+    /* ── RIGHT: Sticky notes ── */
+    + '<div class="np-sticky-col">'
+    +   '<div class="np-col-head">'
+    +     '<i class="ti ti-pin"></i> Sticky notes'
+    +     (count ? '<span class="np-autosave-badge">' + count + ' note' + (count!==1?'s':'') + '</span>' : '')
+    +     '<div style="display:flex;gap:6px;margin-left:auto">'
+    +       '<input id="np-search" class="np-search-box" placeholder="Search notes…"'
+    +         ' oninput="_npRenderGrid()" style="width:140px">'
+    +       '<button class="btn btn-primary btn-sm" id="np-add-btn">'
+    +         '<i class="ti ti-plus"></i> New note'
+    +       '</button>'
+    +     '</div>'
+    +   '</div>'
+
+    /* Composer */
+    +   '<div id="np-composer" class="np-composer" style="display:none">'
+    +     '<input id="np-new-title" class="np-composer-title" placeholder="Title (optional)" maxlength="100">'
+    +     '<textarea id="np-new-body" class="np-composer-body" placeholder="Take a note…" rows="5"></textarea>'
+    +     '<div class="np-composer-footer">'
+    +       '<div class="np-color-row" id="np-color-row">' + colorDots + '</div>'
+    +       '<div style="display:flex;gap:6px">'
+    +         '<button class="btn btn-ghost btn-sm" onclick="npCloseComposer()">Cancel</button>'
+    +         '<button class="btn btn-primary btn-sm" onclick="npSaveNew()">'
+    +           '<i class="ti ti-check"></i> Save'
+    +         '</button>'
+    +       '</div>'
+    +     '</div>'
+    +   '</div>'
+
+    /* Notes grid */
+    +   '<div id="np-notes-grid" class="np-notes-grid"></div>'
+    + '</div>'
+    + '</div>';
+
+  /* Restore scratch */
+  const scratchEl = document.getElementById('np-scratch');
+  if (scratchEl) scratchEl.value = localStorage.getItem(_npScratchKey()) || '';
+
+  /* Wire add button */
+  document.getElementById('np-add-btn').addEventListener('click', npOpenComposer);
+
+  /* Render notes grid */
+  _npRenderGrid();
+}
+
+let _npNewColor = 'yellow';
+
+function npOpenComposer() {
+  const c = document.getElementById('np-composer');
+  if (!c) return;
+  c.style.display = 'block';
+  _npNewColor = 'yellow';
+  _npHighlightColor('yellow');
+  document.getElementById('np-new-body')?.focus();
+}
+
+function npCloseComposer() {
+  const c = document.getElementById('np-composer');
+  if (c) c.style.display = 'none';
+  const t = document.getElementById('np-new-title');
+  const b = document.getElementById('np-new-body');
+  if (t) t.value = '';
+  if (b) b.value = '';
+  _npNewColor = 'yellow';
+}
+
+function npSetNewColor(id) {
+  _npNewColor = id;
+  _npHighlightColor(id);
+}
+
+function _npHighlightColor(id) {
+  document.querySelectorAll('#np-color-row .np-color-dot').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.color === id);
+  });
+}
+
+function npSaveNew() {
+  const title = (document.getElementById('np-new-title')?.value || '').trim();
+  const body  = (document.getElementById('np-new-body')?.value  || '').trim();
+  if (!title && !body) { toast('Write something first!'); return; }
+  const arr = _npGetStickies();
+  arr.unshift({
+    id:        Date.now().toString(36) + Math.random().toString(36).slice(2),
+    title,
+    body,
+    color:     _npNewColor,
+    createdAt: new Date().toISOString(),
+  });
+  _npSave(arr);
+  npCloseComposer();
+  _npRenderGrid();
+}
+
+function _npRenderGrid() {
+  const grid = document.getElementById('np-notes-grid');
+  if (!grid) return;
+
+  const query  = (document.getElementById('np-search')?.value || '').toLowerCase();
+  let   notes  = _npGetStickies();
+
+  /* Apply search filter */
+  if (query) {
+    notes = notes.filter(function(n) {
+      return (n.title || '').toLowerCase().includes(query)
+          || (n.body  || '').toLowerCase().includes(query);
+    });
+  }
+
+  /* Pinned first */
+  const pinned  = notes.filter(function(n){ return n.pinned; });
+  const regular = notes.filter(function(n){ return !n.pinned; });
+  const sorted  = pinned.concat(regular);
+
+  if (!sorted.length) {
+    grid.innerHTML = '<div class="np-empty">'
+      + '<i class="ti ti-pin" style="font-size:28px;opacity:0.25;display:block;margin-bottom:8px"></i>'
+      + (query ? 'No notes match your search' : 'No notes yet — click <strong>New note</strong> to add one')
+      + '</div>';
+    return;
+  }
+
+  grid.innerHTML = '';
+  sorted.forEach(function(note) {
+    const col  = _npColor(note.color);
+    const card = document.createElement('div');
+    card.className = 'np-card' + (note.pinned ? ' np-card-pinned' : '');
+    card.style.background  = col.bg;
+    card.style.borderColor = col.accent + '55';
+
+    const dateStr = note.createdAt
+      ? new Date(note.createdAt).toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'})
+      : '';
+
+    card.innerHTML =
+        '<div class="np-card-inner">'
+      +   '<div class="np-card-header">'
+      +     '<input class="np-card-title-input" placeholder="Title…"'
+      +       ' style="color:' + col.accent + ';border-bottom:1px solid ' + col.accent + '33">'
+      +     '<div class="np-card-actions">'
+      +       '<button class="np-card-btn np-pin-btn" title="' + (note.pinned ? 'Unpin' : 'Pin') + '"'
+      +         ' onclick="npTogglePin(\'' + note.id + '\')">'
+      +         '<i class="ti ' + (note.pinned ? 'ti-pinned-filled' : 'ti-pin') + '" style="font-size:12px"></i>'
+      +       '</button>'
+      +       '<button class="np-card-btn" title="Delete note" onclick="npDeleteNote(\'' + note.id + '\')">'
+      +         '<i class="ti ti-trash" style="font-size:12px"></i>'
+      +       '</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<textarea class="np-card-body" rows="4" placeholder="Write your note…"></textarea>'
+      +   '<div class="np-card-footer">'
+      +     '<span class="np-card-date" style="color:' + col.accent + '88">' + dateStr + '</span>'
+      +     '<div class="np-color-row np-card-color-row">'
+      +       _NP_COLORS.map(function(c) {
+              return '<button class="np-color-dot np-card-color-dot'
+                + (note.color === c.id ? ' active' : '') + '"'
+                + ' data-color="' + c.id + '"'
+                + ' style="background:' + c.bg + ';border-color:' + c.accent + '"'
+                + ' title="' + c.label + '"'
+                + ' onclick="npChangeColor(\'' + note.id + '\',\'' + c.id + '\')"></button>';
+            }).join('')
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+
+    /* Set values safely via .value */
+    card.querySelector('.np-card-title-input').value = note.title || '';
+    card.querySelector('.np-card-body').value         = note.body  || '';
+
+    card.querySelector('.np-card-title-input').addEventListener('input', function() { npUpdateTitle(note.id, this.value); });
+    card.querySelector('.np-card-body').addEventListener('input',        function() { npUpdateBody(note.id,  this.value); });
+
+    /* ── Drag to reorder ── */
+    card.setAttribute('draggable', 'true');
+    card.dataset.noteId = note.id;
+
+    card.addEventListener('dragstart', function(e) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', note.id);
+      setTimeout(function() { card.classList.add('dragging'); }, 0);
+    });
+    card.addEventListener('dragend', function() {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.np-card').forEach(function(c){ c.classList.remove('drag-over'); });
+    });
+    card.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.np-card').forEach(function(c){ c.classList.remove('drag-over'); });
+      card.classList.add('drag-over');
+    });
+    card.addEventListener('drop', function(e) {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      const fromId = e.dataTransfer.getData('text/plain');
+      const toId   = note.id;
+      if (fromId === toId) return;
+      const arr    = _npGetStickies();
+      const fromIdx = arr.findIndex(function(x){ return x.id === fromId; });
+      const toIdx   = arr.findIndex(function(x){ return x.id === toId; });
+      if (fromIdx < 0 || toIdx < 0) return;
+      const moved = arr.splice(fromIdx, 1)[0];
+      arr.splice(toIdx, 0, moved);
+      _npSave(arr);
+      _npRenderGrid();
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+function npTogglePin(id) {
+  const arr = _npGetStickies();
+  const n = arr.find(function(x){ return x.id === id; });
+  if (n) { n.pinned = !n.pinned; _npSave(arr); _npRenderGrid(); }
+}
+
+function npChangeColor(id, colorId) {
+  const arr = _npGetStickies();
+  const n = arr.find(function(x){ return x.id === id; });
+  if (n) { n.color = colorId; _npSave(arr); _npRenderGrid(); }
+}
+
+function npUpdateTitle(id, text) {
+  const arr = _npGetStickies();
+  const n = arr.find(x => x.id === id);
+  if (n) { n.title = text; _npSave(arr); }
+}
+
+function npUpdateBody(id, text) {
+  const arr = _npGetStickies();
+  const n = arr.find(x => x.id === id);
+  if (n) { n.body = text; _npSave(arr); }
+}
+
+function npDeleteNote(id) {
+  const deleted = _npGetStickies().find(x => x.id === id);
+  const arr = _npGetStickies().filter(x => x.id !== id);
+  _npSave(arr);
+  _npRenderGrid();
+  toast('Note deleted', 'error', {
+    label: 'Undo',
+    fn: () => {
+      const cur = _npGetStickies();
+      cur.unshift(deleted);
+      _npSave(cur);
+      _npRenderGrid();
+    },
+  });
+}
+
+/* Legacy aliases so any old HTML onclick calls don't break */
+function addStickyNote()       { npOpenComposer(); }
+function saveNotepadScratch()  { localStorage.setItem(_npScratchKey(), document.getElementById('np-scratch')?.value || ''); }
