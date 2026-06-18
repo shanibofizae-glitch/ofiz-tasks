@@ -114,6 +114,10 @@ function _cnoteFromDb(r)   { return { id:r.id, clientId:r.client_id, userId:r.us
 function _remFromDb(r)     { return { id:r.id, title:r.title, category:r.category||'Custom', amount:r.amount, clientId:r.client_id||'', eventDate:r.event_date, remind1:r.remind1, remind2:r.remind2, remind3:r.remind3, notifyEmail:r.notify_email!==false, notifyTelegram:r.notify_telegram!==false, notes:r.notes||'', active:r.active!==false, paidAt:r.paid_at||'', recurrence:r.recurrence||'none', recurrenceConfig:r.recurrence_config||null, paidDates:Array.isArray(r.paid_dates)?r.paid_dates:[], assignedUserId:r.assigned_user_id||'' }; }
 function _remToDb(r)       { return { id:r.id, title:r.title, category:r.category, amount:r.amount||null, client_id:r.clientId||null, event_date:r.eventDate, remind1:r.remind1||null, remind2:r.remind2||null, remind3:r.remind3||null, notify_email:r.notifyEmail!==false, notify_telegram:r.notifyTelegram!==false, notes:r.notes||'', active:r.active!==false, paid_at:r.paidAt||null, recurrence:r.recurrence||'none', recurrence_config:r.recurrenceConfig||null, paid_dates:r.paidDates||[], assigned_user_id:r.assignedUserId||null }; }
 function _svFromDb(r)      { return { id:r.id, name:r.name, userId:r.user_id, filters:r.filters||{} }; }
+function _clSheetFromDb(r) { return { id:r.id, name:r.name, clientId:r.client_id||'', createdAt:r.created_at||'', active:r.active!==false, priority:!!r.priority, projectCode:r.project_code||'', manager:r.manager||'' }; }
+function _clSheetToDb(s)   { return { id:s.id, name:s.name, client_id:s.clientId||null, created_at:s.createdAt||null, active:s.active!==false, priority:!!s.priority, project_code:s.projectCode||'', manager:s.manager||'' }; }
+function _clItemFromDb(r)  { return { id:r.id, sheetId:r.sheet_id, parentItemId:r.parent_item_id||null, text:r.text||'', notes:r.notes||'', comments:r.comments||'', assigneeId:r.assignee_id||'', done:!!r.done, sortOrder:r.sort_order??0, createdAt:r.created_at||'', itemType:r.item_type||'task', status:r.status||'todo', dueDate:r.due_date||'', description:r.description||'' }; }
+function _clItemToDb(i)    { return { id:i.id, sheet_id:i.sheetId, parent_item_id:i.parentItemId||null, text:i.text||'', notes:i.notes||'', comments:i.comments||'', assignee_id:i.assigneeId||null, done:!!i.done, sort_order:i.sortOrder??0, created_at:i.createdAt||null, item_type:i.itemType||'task', status:i.status||'todo', due_date:i.dueDate||null, description:i.description||'' }; }
 
 const Sheets = {
   _sb: null,
@@ -253,12 +257,54 @@ const Sheets = {
   async updateReminder(r) { await this._q('reminders').upsert(_remToDb(r)); },
   async deleteReminder(id){ await this._q('reminders').delete().eq('id',id); },
 
+  /* ── Checklist sheets & items ───────────────────── */
+  async loadChecklistSheets() {
+    const { data, error } = await this._q('checklist_sheets').select('*').order('created_at');
+    if (error) { console.error('[DB] loadChecklistSheets:', error.message); return []; }
+    return (data||[]).map(_clSheetFromDb);
+  },
+  async loadChecklistItems() {
+    const { data, error } = await this._q('checklist_items').select('*').order('sort_order');
+    if (error) { console.error('[DB] loadChecklistItems:', error.message); return []; }
+    return (data||[]).map(_clItemFromDb);
+  },
+  async addChecklistSheet(s)    { const {error} = await this._q('checklist_sheets').insert(_clSheetToDb(s)); if(error) { console.error('[DB] addChecklistSheet:', error.message); throw new Error(error.message); } },
+  async updateChecklistSheet(s) { const {error} = await this._q('checklist_sheets').upsert(_clSheetToDb(s)); if(error) { console.error('[DB] updateChecklistSheet:', error.message); throw new Error(error.message); } },
+  async deleteChecklistSheet(id){
+    const {error: e1} = await this._q('checklist_items').delete().eq('sheet_id', id);
+    if (e1) { console.error('[DB] deleteChecklistSheet items:', e1.message); throw new Error(e1.message); }
+    const {error: e2} = await this._q('checklist_sheets').delete().eq('id', id);
+    if (e2) { console.error('[DB] deleteChecklistSheet:', e2.message); throw new Error(e2.message); }
+  },
+  async addChecklistItem(i)     { const {error} = await this._q('checklist_items').insert(_clItemToDb(i)); if(error) { console.error('[DB] addChecklistItem:', error.message); throw new Error(error.message); } },
+  async addChecklistItems(arr)  { if (!arr.length) return; const {error} = await this._q('checklist_items').insert(arr.map(_clItemToDb)); if(error) { console.error('[DB] addChecklistItems:', error.message); throw new Error(error.message); } },
+  async updateChecklistItem(i)  { const {error} = await this._q('checklist_items').upsert(_clItemToDb(i)); if(error) { console.error('[DB] updateChecklistItem:', error.message); throw new Error(error.message); } },
+  async deleteChecklistItems(ids){ if (!ids.length) return; const {error} = await this._q('checklist_items').delete().in('id', ids); if(error) { console.error('[DB] deleteChecklistItems:', error.message); throw new Error(error.message); } },
+
+  /* ── Notepad (one row per user) ─────────────────── */
+  async loadNotepad(userId) {
+    const { data, error } = await this._q('notepad').select('*').eq('user_id', userId).maybeSingle();
+    if (error) { console.error('[DB] loadNotepad:', error.message); return null; }
+    return data ? { scratch: data.scratch || '', stickies: data.stickies || [] } : null;
+  },
+  async saveNotepad(userId, scratch, stickies) {
+    /* Log-only on failure (e.g. table not migrated yet) — local copy already saved */
+    const { error } = await this._q('notepad').upsert({
+      user_id: userId, scratch: scratch || '', stickies: stickies || [], updated_at: new Date().toISOString(),
+    });
+    if (error) console.error('[DB] saveNotepad:', error.message);
+  },
+
   /* ── Real-time subscriptions ────────────────────── */
   subscribeRealtime() {
     if (!this._sb) return;
     this._sb.channel('db-live')
       .on('postgres_changes', {event:'*', schema:'public', table:'tasks'},
         () => { if (State.user) State.loadFromDb().then(() => refreshCurrentPage()); })
+      .on('postgres_changes', {event:'*', schema:'public', table:'checklist_sheets'},
+        () => { if (State.user && typeof currentPage !== 'undefined' && currentPage === 'checklists') State.loadFromDb().then(() => refreshCurrentPage()); })
+      .on('postgres_changes', {event:'*', schema:'public', table:'checklist_items'},
+        () => { if (State.user && typeof currentPage !== 'undefined' && currentPage === 'checklists') State.loadFromDb().then(() => refreshCurrentPage()); })
       .on('postgres_changes', {event:'INSERT', schema:'public', table:'messages'},
         payload => {
           const msg = _msgFromDb(payload.new);
@@ -289,12 +335,16 @@ const State = {
   messages:    [],
   clientNotes: [],
   reminders:   [],
+  checklistSheets: [],
+  checklistItems:  [],
+  activeChecklistSheetId: null,
   nextId:      Math.floor(Date.now() / 1000),
   useSheets:   true,
   lastSyncAt:  null,
 
   uid()  { return 't'  + (++this.nextId); },
   cmId() { return 'cm' + (++this.nextId); },
+  clId() { return 'cl' + (++this.nextId); },
 
   /* ── Lookup helpers ──────────────────────────────────── */
   getTask(id)      { return this.tasks.find(t => t.id === id); },
@@ -326,7 +376,8 @@ const State = {
       const [sheetTasks, sheetComments, sheetClients, sheetUsers,
              sheetPipelines, sheetStages, sheetTemplates,
              sheetActivity, sheetDocs, sheetViews, sheetTimeLogs,
-             sheetMessages, sheetClientNotes, sheetReminders] = await Promise.all([
+             sheetMessages, sheetClientNotes, sheetReminders,
+             sheetClSheets, sheetClItems] = await Promise.all([
         Sheets.loadTasks(),
         Sheets.loadComments(),
         Sheets.loadClients(),
@@ -341,6 +392,8 @@ const State = {
         Sheets.loadMessages(),
         Sheets.loadClientNotes(),
         Sheets.loadReminders(),
+        Sheets.loadChecklistSheets(),
+        Sheets.loadChecklistItems(),
       ]);
       if (sheetTasks.length > 0) {
         /* Deduplicate by ID — first occurrence wins (original task) */
@@ -413,6 +466,17 @@ const State = {
       if (sheetReminders) {
         this.reminders = sheetReminders;
       }
+      if (sheetClSheets) {
+        this.checklistSheets = sheetClSheets;
+      }
+      if (sheetClItems) {
+        this.checklistItems = sheetClItems;
+      }
+      /* Advance nextId past loaded checklist ids — prevents collisions on duplicate */
+      [...this.checklistSheets, ...this.checklistItems].forEach(x => {
+        const m = String(x.id).match(/^cl(\d+)$/);
+        if (m) this.nextId = Math.max(this.nextId, parseInt(m[1], 10));
+      });
       this.lastSyncAt = new Date();
       _updateSyncTime();
     } catch(e) {
@@ -964,6 +1028,293 @@ State.addClientNote = async function(clientId, text) {
 State.deleteClientNote = async function(id) {
   this.clientNotes = this.clientNotes.filter(n => n.id !== id);
   if (this.useSheets) Sheets.deleteClientNote(id);
+};
+
+/* ─── Checklist sheets & items ──────────────────────────── */
+State.addChecklistSheet = async function(data) {
+  const sheet = {
+    id:        this.clId(),
+    name:      data.name,
+    clientId:  data.clientId || '',
+    createdAt: new Date().toISOString().slice(0,10),
+    active:    true,
+    priority:    false,
+    projectCode: '',
+    manager:     '',
+  };
+  this.checklistSheets.push(sheet);
+  if (this.useSheets) {
+    try { await Sheets.addChecklistSheet(sheet); }
+    catch(e) {
+      this.checklistSheets = this.checklistSheets.filter(s => s.id !== sheet.id);
+      throw e;
+    }
+  }
+  return sheet;
+};
+
+State.updateChecklistSheet = async function(id, patch) {
+  const idx = this.checklistSheets.findIndex(s => s.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.checklistSheets[idx], patch);
+  if (this.useSheets) await Sheets.updateChecklistSheet(this.checklistSheets[idx]);
+  return this.checklistSheets[idx];
+};
+
+State.deleteChecklistSheet = async function(id) {
+  this.checklistSheets = this.checklistSheets.filter(s => s.id !== id);
+  this.checklistItems  = this.checklistItems.filter(i => i.sheetId !== id);
+  if (this.useSheets) await Sheets.deleteChecklistSheet(id);
+};
+
+State.addChecklistItem = async function(sheetId, parentItemId, text, itemType) {
+  const siblings = this.checklistItems.filter(i =>
+    i.sheetId === sheetId && (i.parentItemId || null) === (parentItemId || null));
+  const item = {
+    id:           this.clId(),
+    sheetId,
+    parentItemId: parentItemId || null,
+    text:         text || '',
+    notes:        '',
+    comments:     '',
+    assigneeId:   '',
+    done:         false,
+    sortOrder:    siblings.length ? Math.max(...siblings.map(s => s.sortOrder)) + 1 : 1,
+    createdAt:    new Date().toISOString().slice(0,10),
+    itemType:     itemType === 'category' ? 'category' : 'task',
+    status:       'todo',
+    dueDate:      '',
+    description:  '',
+  };
+  this.checklistItems.push(item);
+  if (this.useSheets) {
+    try { await Sheets.addChecklistItem(item); }
+    catch(e) {
+      this.checklistItems = this.checklistItems.filter(i => i.id !== item.id);
+      throw e;
+    }
+  }
+  return item;
+};
+
+State.updateChecklistItem = async function(id, patch) {
+  const idx = this.checklistItems.findIndex(i => i.id === id);
+  if (idx < 0) return null;
+  Object.assign(this.checklistItems[idx], patch);
+  if (this.useSheets) await Sheets.updateChecklistItem(this.checklistItems[idx]);
+  return this.checklistItems[idx];
+};
+
+State.deleteChecklistItem = async function(id) {
+  /* Collect the item plus all descendants recursively */
+  const ids = [id];
+  const collect = (parentId) => {
+    this.checklistItems.forEach(i => {
+      if (i.parentItemId === parentId) { ids.push(i.id); collect(i.id); }
+    });
+  };
+  collect(id);
+  this.checklistItems = this.checklistItems.filter(i => !ids.includes(i.id));
+  if (this.useSheets) await Sheets.deleteChecklistItems(ids);
+  return ids.length;
+};
+
+/* Move an item up/down among its same-parent siblings (dir = -1 up, +1 down) */
+State.moveChecklistItem = async function(id, dir) {
+  const item = this.checklistItems.find(i => i.id === id);
+  if (!item) return false;
+  const siblings = this.checklistItems
+    .filter(i => i.sheetId === item.sheetId && (i.parentItemId || null) === (item.parentItemId || null))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const pos = siblings.findIndex(i => i.id === id);
+  const swapWith = siblings[pos + dir];
+  if (!swapWith) return false;                       /* already at the edge */
+  const tmp = item.sortOrder;
+  item.sortOrder = swapWith.sortOrder;
+  swapWith.sortOrder = tmp;
+  if (this.useSheets) {
+    await Sheets.updateChecklistItem(item);
+    await Sheets.updateChecklistItem(swapWith);
+  }
+  return true;
+};
+
+/* ══ Notepad — Supabase-synced, localStorage as offline cache ══ */
+State.notepad        = null;     /* { scratch, stickies } once loaded */
+State._npLoadedFor   = null;     /* user id the cache was loaded for */
+State._npSaveTimer   = null;
+
+State._npLocalKeys = function(uid) {
+  return { s: 'ofiz_notepad_scratch_' + uid, k: 'ofiz_notepad_stickies_' + uid };
+};
+State._npReadLocal = function(uid) {
+  const key = this._npLocalKeys(uid);
+  try {
+    const s  = localStorage.getItem(key.s);
+    const st = localStorage.getItem(key.k);
+    if (s === null && st === null) return null;
+    return { scratch: s || '', stickies: st ? JSON.parse(st) : [] };
+  } catch (e) { return null; }
+};
+State._npWriteLocal = function(uid, np) {
+  const key = this._npLocalKeys(uid);
+  try {
+    localStorage.setItem(key.s, np.scratch || '');
+    localStorage.setItem(key.k, JSON.stringify(np.stickies || []));
+  } catch (e) { /* quota / private mode */ }
+};
+
+/* Load once per session: cloud is source of truth; if cloud is empty but
+   local has notes, push them up (first-run migration of existing data). */
+State.loadNotepad = async function() {
+  const uid = this.user && this.user.id;
+  if (!uid) return null;
+  const local = this._npReadLocal(uid);
+
+  if (!this.useSheets) {
+    this.notepad = local || { scratch: '', stickies: [] };
+    this._npLoadedFor = uid;
+    return this.notepad;
+  }
+
+  let cloud = null;
+  try { cloud = await Sheets.loadNotepad(uid); } catch (e) { cloud = null; }
+
+  if (cloud) {
+    this.notepad = cloud;
+    this._npWriteLocal(uid, cloud);                 /* refresh local cache */
+  } else if (local && (local.scratch || (local.stickies && local.stickies.length))) {
+    this.notepad = local;                           /* migrate existing local → cloud */
+    Sheets.saveNotepad(uid, local.scratch, local.stickies);
+  } else {
+    this.notepad = local || { scratch: '', stickies: [] };
+  }
+  this._npLoadedFor = uid;
+  return this.notepad;
+};
+
+/* Save locally now (instant/offline) + debounce a cloud upsert */
+State.saveNotepad = function(scratch, stickies) {
+  const uid = this.user && this.user.id;
+  if (!uid) return;
+  this.notepad = { scratch: scratch || '', stickies: stickies || [] };
+  this._npWriteLocal(uid, this.notepad);
+  if (!this.useSheets) return;
+  clearTimeout(this._npSaveTimer);
+  this._npSaveTimer = setTimeout(function() {
+    Sheets.saveNotepad(uid, scratch, stickies);
+  }, 800);
+};
+
+/* One-time promotion of checklist extras that used to live in ClLocal
+   (localStorage) into the new Supabase columns. Runs once per browser:
+   only fills a DB field when it's empty and a local value exists, so it
+   never clobbers cloud data. */
+State.migrateChecklistLocal = async function() {
+  if (!this.useSheets) return;
+  if (typeof ClLocal === 'undefined') return;
+  const FLAG = 'ofiz_cl_promoted_v1';
+  try { if (localStorage.getItem(FLAG)) return; } catch (e) { return; }
+
+  /* Only migrate once the new columns exist — otherwise bail and retry next
+     session (so we don't burn the one-time flag before the SQL is applied). */
+  try {
+    const probe = await Sheets._q('checklist_items').select('status').limit(1);
+    if (probe.error) return;
+  } catch (e) { return; }
+
+  for (const it of this.checklistItems) {
+    const ext = ClLocal.item(it.id);
+    const patch = {};
+    if ((!it.status || it.status === 'todo') && ext.status && ext.status !== 'todo') patch.status = ext.status;
+    if (!it.dueDate     && ext.dueDate)     patch.dueDate     = ext.dueDate;
+    if (!it.description && ext.description) patch.description = ext.description;
+    if (Object.keys(patch).length) {
+      Object.assign(it, patch);
+      try { await Sheets.updateChecklistItem(it); } catch (e) { /* ignore */ }
+    }
+  }
+  for (const s of this.checklistSheets) {
+    const ext = ClLocal.sheet(s.id);
+    const patch = {};
+    if (!s.priority    && ext.priority)    patch.priority    = ext.priority;
+    if (!s.projectCode && ext.projectCode) patch.projectCode = ext.projectCode;
+    if (!s.manager     && ext.manager)     patch.manager     = ext.manager;
+    if (Object.keys(patch).length) {
+      Object.assign(s, patch);
+      try { await Sheets.updateChecklistSheet(s); } catch (e) { /* ignore */ }
+    }
+  }
+  try { localStorage.setItem(FLAG, '1'); } catch (e) { /* ignore */ }
+};
+
+/* Drag-drop reorder/re-parent: dragged item takes target's parent + position */
+State.reorderChecklistItemDrop = async function(draggedId, targetId) {
+  if (draggedId === targetId) return false;
+  const dragged = this.checklistItems.find(i => i.id === draggedId);
+  const target  = this.checklistItems.find(i => i.id === targetId);
+  if (!dragged || !target) return false;
+
+  /* Guard: cannot drop an item into one of its own descendants */
+  let walk = target;
+  while (walk) {
+    if (walk.id === draggedId) return false;
+    walk = walk.parentItemId ? this.checklistItems.find(i => i.id === walk.parentItemId) : null;
+  }
+
+  const newParent = target.parentItemId || null;
+  dragged.parentItemId = newParent;
+
+  /* Rebuild the destination sibling group order with dragged placed before target */
+  const group = this.checklistItems
+    .filter(i => i.sheetId === target.sheetId && (i.parentItemId || null) === newParent && i.id !== draggedId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const ti = group.findIndex(i => i.id === targetId);
+  group.splice(ti, 0, dragged);
+
+  const changed = [];
+  group.forEach((i, idx) => {
+    const so = idx + 1;
+    if (i.sortOrder !== so || i.id === draggedId) { i.sortOrder = so; changed.push(i); }
+  });
+  if (this.useSheets) {
+    for (const i of changed) await Sheets.updateChecklistItem(i);
+  }
+  return true;
+};
+
+State.duplicateChecklistSheet = async function(sheetId) {
+  const src = this.checklistSheets.find(s => s.id === sheetId);
+  if (!src) return null;
+  const today    = new Date().toISOString().slice(0,10);
+  const newSheet = { id: this.clId(), name: src.name + ' (copy)', clientId: src.clientId, createdAt: today, active: true };
+  const srcItems = this.checklistItems.filter(i => i.sheetId === sheetId);
+
+  /* old-id → new-id map preserves the hierarchy */
+  const idMap = {};
+  srcItems.forEach(i => { idMap[i.id] = this.clId(); });
+  const newItems = srcItems.map(i => ({
+    ...i,
+    id:           idMap[i.id],
+    sheetId:      newSheet.id,
+    parentItemId: i.parentItemId ? idMap[i.parentItemId] : null,
+    done:         false,
+    createdAt:    today,
+  }));
+
+  this.checklistSheets.push(newSheet);
+  this.checklistItems.push(...newItems);
+  if (this.useSheets) {
+    try {
+      await Sheets.addChecklistSheet(newSheet);
+      await Sheets.addChecklistItems(newItems);
+    } catch(e) {
+      this.checklistSheets = this.checklistSheets.filter(s => s.id !== newSheet.id);
+      this.checklistItems  = this.checklistItems.filter(i => i.sheetId !== newSheet.id);
+      throw e;
+    }
+  }
+  return newSheet.id;
 };
 
 /* ─── Client Health Score ───────────────────────────────── */

@@ -30,6 +30,7 @@ function showPage(pageId, navEl) {
     documents: 'Documents',
     reminders: 'Reminders',
     notepad:   'Notepad',
+    checklists:'Checklists',
   };
   const titleEl = document.getElementById('page-title');
   if (titleEl) titleEl.textContent = titles[pageId] || '';
@@ -62,6 +63,7 @@ function refreshCurrentPage() {
     case 'documents': renderDocuments();      break;
     case 'reminders': renderReminders();      break;
     case 'notepad':   renderNotepad();        break;
+    case 'checklists':renderChecklists();     break;
   }
 }
 
@@ -167,6 +169,8 @@ async function loginAs(userId) {
     /* Show skeleton while loading */
     renderSkeleton('dash-task-list', 6);
     await State.loadFromSheets();
+    await State.loadNotepad();          /* per-user notepad (cloud-synced) */
+    await State.migrateChecklistLocal(); /* one-time: local checklist extras → cloud */
     if (titleEl) titleEl.textContent = 'Dashboard';
   }
 
@@ -221,6 +225,8 @@ function logout() {
   document.getElementById('live-clock').style.display = 'none';
   closeChat();
   State.user     = null;
+  State.notepad      = null;
+  State._npLoadedFor = null;
   selectedUserId = null;
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';

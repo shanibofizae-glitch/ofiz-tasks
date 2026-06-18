@@ -6344,8 +6344,19 @@ function _npGetStickies() {
   try { return JSON.parse(localStorage.getItem(_npStickyKey()) || '[]'); }
   catch(e) { return []; }
 }
-function _npSave(arr) { localStorage.setItem(_npStickyKey(), JSON.stringify(arr)); }
+function _npSave(arr) { localStorage.setItem(_npStickyKey(), JSON.stringify(arr)); _npSyncCloud(); }
 function _npColor(id) { return _NP_COLORS.find(c => c.id === id) || _NP_COLORS[0]; }
+
+/* Push current local notepad (scratch + stickies) to Supabase — debounced in State */
+function _npSyncCloud() {
+  if (typeof State === 'undefined' || typeof State.saveNotepad !== 'function') return;
+  const scratch = localStorage.getItem(_npScratchKey()) || '';
+  State.saveNotepad(scratch, _npGetStickies());
+}
+function npOnScratchInput(val) {
+  localStorage.setItem(_npScratchKey(), val);
+  _npSyncCloud();
+}
 
 /* ── Main render entry point ────────────────────────────── */
 function renderNotepad() {
@@ -6372,11 +6383,11 @@ function renderNotepad() {
     + '<div class="np-scratch-col">'
     +   '<div class="np-col-head">'
     +     '<i class="ti ti-pencil"></i> Scratch pad'
-    +     '<span class="np-autosave-badge">auto-saves</span>'
+    +     '<span class="np-autosave-badge"><i class="ti ti-cloud-check" style="font-size:11px;vertical-align:-1px"></i> synced</span>'
     +   '</div>'
     +   '<textarea id="np-scratch" class="np-scratch-area"'
     +     ' placeholder="Jot anything here — quick thoughts, copy-paste, to-do lists…"'
-    +     ' oninput="localStorage.setItem(_npScratchKey(),this.value)"></textarea>'
+    +     ' oninput="npOnScratchInput(this.value)"></textarea>'
     + '</div>'
 
     /* ── RIGHT: Sticky notes ── */
@@ -6633,3 +6644,779 @@ function npDeleteNote(id) {
 /* Legacy aliases so any old HTML onclick calls don't break */
 function addStickyNote()       { npOpenComposer(); }
 function saveNotepadScratch()  { localStorage.setItem(_npScratchKey(), document.getElementById('np-scratch')?.value || ''); }
+
+/* ══════════════════════════════════════════════════════════
+   CHECKLISTS — process tracking with unlimited nesting
+   Sheets (one per process/client) shown as colourful tabs.
+   Items nest via parentItemId; rendered recursively.
+   ══════════════════════════════════════════════════════════ */
+
+/* View state: 'grid' (card landing) or 'sheet' (single sheet detail) */
+let _clView      = 'grid';
+let _clFilter    = 'active';            /* 'active' | 'archived' */
+let _clSearch    = '';                  /* landing search query */
+let _clPendingTemplateId = null;        /* template to apply on next sheet create */
+const _clCollapsed = new Set();         /* collapsed category ids */
+
+/* ── Main render entry point ────────────────────────────── */
+function renderChecklists() {
+  const el = document.getElementById('page-checklists');
+  if (!el) return;
+
+  /* If the open sheet vanished or got archived, fall back to the grid */
+  if (_clView === 'sheet') {
+    const cur = State.checklistSheets.find(s => s.id === State.activeChecklistSheetId);
+    if (!cur) _clView = 'grid';
+  }
+
+  if (_clView === 'sheet') _renderChecklistSheet(el);
+  else                     _renderChecklistGrid(el);
+}
+
+/* ── Landing grid: square cards grouped by client ───────── */
+function _renderChecklistGrid(el) {
+  const canEdit  = State.user?.role !== 'viewer';
+  const archived = _clFilter === 'archived';
+  let   sheets   = State.checklistSheets.filter(s => archived ? s.active === false : s.active !== false);
+  const activeCount   = State.checklistSheets.filter(s => s.active !== false).length;
+  const archivedCount = State.checklistSheets.filter(s => s.active === false).length;
+
+  /* Search filter — by sheet name, client name, or project code */
+  const q = _clSearch.trim().toLowerCase();
+  if (q) {
+    sheets = sheets.filter(function(s) {
+      const c = s.clientId ? State.getClient(s.clientId) : null;
+      return (s.name || '').toLowerCase().includes(q)
+        || (c ? c.name.toLowerCase().includes(q) : false)
+        || (s.projectCode || '').toLowerCase().includes(q)
+        || (s.manager || '').toLowerCase().includes(q);
+    });
+  }
+
+  /* group by client, sorted by client name (no-client group last) */
+  const groups = {};
+  sheets.forEach(function(s) {
+    const c   = s.clientId ? State.getClient(s.clientId) : null;
+    const key = c ? c.name : '￿No client';
+    (groups[key] = groups[key] || { name: c ? c.name : 'No client', items: [] }).items.push(s);
+  });
+  const groupKeys = Object.keys(groups).sort();
+
+  let body;
+  if (!sheets.length) {
+    body = '<div class="empty-state"><i class="ti ti-checklist"></i><p>'
+      + (q ? 'No checklists match “' + esc(_clSearch.trim()) + '”.'
+           : (archived ? 'No archived checklists.' : 'No active checklists yet. Create one to track a full process — e.g. "Monthly Closing — The Den DXB".'))
+      + '</p></div>';
+  } else {
+    body = groupKeys.map(function(k) {
+      const g = groups[k];
+      return '<div class="cl-card-group">'
+        + '<div class="cl-card-group-title"><i class="ti ti-building"></i> ' + esc(g.name) + '</div>'
+        + '<div class="cl-card-grid">'
+        + g.items.map(s => _renderClCard(s, canEdit, archived)).join('')
+        + '</div></div>';
+    }).join('');
+  }
+
+  el.innerHTML =
+    '<div class="section-head" style="margin-bottom:14px">'
+    + '<span class="section-title">Checklists</span>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    +   '<div class="cl-search"><i class="ti ti-search"></i>'
+    +     '<input id="cl-search-input" placeholder="Search checklists…" value="' + esc(_clSearch) + '"'
+    +       ' oninput="setChecklistSearch(this.value)">'
+    +     (_clSearch ? '<button class="cl-search-clear" onclick="setChecklistSearch(\'\')"><i class="ti ti-x"></i></button>' : '')
+    +   '</div>'
+    +   (canEdit ? '<button class="btn btn-primary btn-sm" onclick="openNewChecklistSheetModal()">'
+        + '<i class="ti ti-plus"></i> New sheet</button>' : '')
+    + '</div>'
+    + '</div>'
+
+    /* Hero row — Daily Wins + Templates (active view only, no search) */
+    + ((!archived && !q) ? '<div class="cl-hero">' + _clDailyWinsHtml() + _clTemplatesCardHtml(canEdit) + '</div>' : '')
+
+    /* Filter pills */
+    + '<div class="cl-filter-bar">'
+    +   '<button class="cl-filter' + (!archived ? ' active' : '') + '" onclick="setChecklistFilter(\'active\')">'
+    +     'Active <span class="cl-filter-count">' + activeCount + '</span></button>'
+    +   '<button class="cl-filter' + (archived ? ' active' : '') + '" onclick="setChecklistFilter(\'archived\')">'
+    +     'Archived <span class="cl-filter-count">' + archivedCount + '</span></button>'
+    + '</div>'
+
+    + body
+    + _clSheetModalHtml()
+    + _clTemplatesModalHtml();
+
+  /* Keep focus + caret in the search box across re-renders */
+  if (q) {
+    const si = document.getElementById('cl-search-input');
+    if (si) { si.focus(); si.setSelectionRange(si.value.length, si.value.length); }
+  }
+}
+
+function setChecklistSearch(v) {
+  _clSearch = v || '';
+  renderChecklists();
+}
+
+/* One sheet card — progress ring hero + category dots + due chips */
+function _renderClCard(s, canEdit, archived) {
+  const p   = _clProgress(s.id);
+  const idx = State.checklistSheets.filter(x => x.active !== false).indexOf(s);
+  const pal = _PIP_PALETTE[(idx < 0 ? 0 : idx) % _PIP_PALETTE.length];
+  const meta = s;   /* priority / projectCode / manager now live on the sheet (synced) */
+  const pri  = !!s.priority;
+  const sub  = [s.projectCode, s.manager ? 'Mgr: ' + s.manager : ''].filter(Boolean).join(' · ');
+
+  /* category color dots (cycle the palette in category order) */
+  const catItems = State.checklistItems
+    .filter(i => i.sheetId === s.id && i.itemType === 'category')
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const dots = catItems.slice(0, 6).map(function(c, i) {
+    const cp = _PIP_PALETTE[i % _PIP_PALETTE.length];
+    return '<span class="cl-card-dot" style="background:' + cp.active + '" title="' + esc(c.text || 'Section') + '"></span>';
+  }).join('') + (catItems.length > 6 ? '<span class="cl-card-dot-more">+' + (catItems.length - 6) + '</span>' : '');
+
+  /* due / overdue rollup from ClLocal */
+  const today = _clTodayStr();
+  let overdue = 0, dueToday = 0;
+  State.checklistItems
+    .filter(i => i.sheetId === s.id && i.itemType !== 'category' && !i.done)
+    .forEach(function(i) {
+      const d = i.dueDate;
+      if (d && d < today) overdue++; else if (d === today) dueToday++;
+    });
+  let chip = '';
+  if (overdue)       chip = '<span class="cl-card-chip cl-card-chip-overdue"><i class="ti ti-alert-triangle"></i> ' + overdue + ' overdue</span>';
+  else if (dueToday) chip = '<span class="cl-card-chip cl-card-chip-due"><i class="ti ti-calendar"></i> ' + dueToday + ' due today</span>';
+  else if (p.total && p.done === p.total) chip = '<span class="cl-card-chip cl-card-chip-done"><i class="ti ti-circle-check"></i> Complete</span>';
+
+  /* hero progress ring */
+  const r = 30, circ = 2 * Math.PI * r, off = circ * (1 - p.pct / 100);
+  const ring = '<svg class="cl-card-ring-svg" viewBox="0 0 76 76">'
+    + '<circle class="cl-card-ring-bg" cx="38" cy="38" r="' + r + '"></circle>'
+    + '<circle class="cl-card-ring-fg" cx="38" cy="38" r="' + r + '" stroke="' + pal.active + '"'
+    +   ' stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"></circle>'
+    + '<text class="cl-card-ring-pct" x="38" y="34">' + p.pct + '%</text>'
+    + '<text class="cl-card-ring-sub" x="38" y="48">' + p.done + '/' + p.total + '</text>'
+    + '</svg>';
+
+  return '<div class="cl-card' + (pri ? ' cl-card-priority' : '') + '" onclick="openChecklistSheet(\'' + s.id + '\')"'
+    +   ' style="--cl-accent:' + pal.active + ';--cl-tint:' + pal.bg + ';border-top:4px solid ' + pal.active + '">'
+    + '<div class="cl-card-top">'
+    +   (pri ? '<span class="cl-pri-badge">Priority</span>' : '<span class="cl-card-cats-dots">' + dots + '</span>')
+    +   (canEdit
+        ? '<div class="cl-card-acts" onclick="event.stopPropagation()">'
+          + (archived
+            ? '<button class="cl-row-btn" title="Restore" onclick="unarchiveChecklistSheetUI(\'' + s.id + '\')"><i class="ti ti-archive-off"></i></button>'
+              + '<button class="cl-row-btn cl-del" title="Delete permanently" onclick="confirmDeleteChecklistSheet(\'' + s.id + '\')"><i class="ti ti-trash"></i></button>'
+            : '<button class="cl-row-btn" title="Duplicate" onclick="duplicateChecklistSheetUI(\'' + s.id + '\')"><i class="ti ti-copy"></i></button>'
+              + '<button class="cl-row-btn" title="Archive" onclick="archiveChecklistSheetUI(\'' + s.id + '\')"><i class="ti ti-archive"></i></button>')
+          + '</div>'
+        : '')
+    + '</div>'
+    + '<div class="cl-card-ring">' + ring + '</div>'
+    + '<div class="cl-card-name">' + esc(s.name) + '</div>'
+    + (sub ? '<div class="cl-card-code">' + esc(sub) + '</div>' : '')
+    + '<div class="cl-card-foot">'
+    +   '<span class="cl-card-meta">' + (catItems.length ? catItems.length + ' · ' : '') + p.total + ' item' + (p.total === 1 ? '' : 's') + '</span>'
+    +   chip
+    + '</div>'
+    + '</div>';
+}
+
+/* ── Single sheet detail view ───────────────────────────── */
+function _renderChecklistSheet(el) {
+  const canEdit  = State.user?.role !== 'viewer';
+  const activeId = State.activeChecklistSheetId;
+  const sheet    = State.checklistSheets.find(s => s.id === activeId);
+  if (!sheet) { _clView = 'grid'; renderChecklists(); return; }
+
+  const prog     = _clProgress(activeId);
+  const byParent = _clTree(activeId);
+  _clBuildCatColors(byParent);
+  const client   = sheet.clientId ? State.getClient(sheet.clientId) : null;
+  const isArchived = sheet.active === false;
+  const pri        = !!sheet.priority;
+
+  el.innerHTML =
+    '<div class="section-head" style="margin-bottom:14px">'
+    + '<button class="btn btn-ghost btn-sm" onclick="backToChecklistGrid()"><i class="ti ti-arrow-left"></i> All checklists</button>'
+    + (canEdit ? '<button class="btn btn-primary btn-sm" onclick="openNewChecklistSheetModal()">'
+      + '<i class="ti ti-plus"></i> New sheet</button>' : '')
+    + '</div>'
+
+    + '<div class="cl-sheet-body">'
+    +   '<div class="cl-sheet-head">'
+    +     '<div style="flex:1;min-width:0">'
+    +       '<div style="font-size:var(--text-md);font-weight:700;color:var(--ink)">'
+    +         (pri ? '<span class="cl-pri-badge">Priority</span> ' : '') + esc(sheet.name)
+    +         (isArchived ? ' <span class="cl-archived-tag">Archived</span>' : '') + '</div>'
+    +       '<div style="font-size:var(--text-sm);color:var(--ink-3);margin-top:2px">'
+    +         (client ? esc(client.name) + ' · ' : '')
+    +         prog.done + '/' + prog.total + ' done'
+    +       '</div>'
+    +       _clSheetMetaHtml(sheet, canEdit)
+    +     '</div>'
+    +     (canEdit
+        ? '<div style="display:flex;gap:6px;flex-shrink:0">'
+          + '<button class="btn btn-ghost btn-sm" onclick="toggleSheetPriority(\'' + sheet.id + '\')" title="' + (pri ? 'Remove priority' : 'Mark as priority') + '"><i class="ti ti-flag' + (pri ? '-filled' : '') + '"' + (pri ? ' style="color:#c0392b"' : '') + '></i></button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="renameChecklistSheetUI(\'' + sheet.id + '\')" title="Rename"><i class="ti ti-pencil"></i></button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="duplicateChecklistSheetUI(\'' + sheet.id + '\')" title="Duplicate — fresh copy, all unchecked"><i class="ti ti-copy"></i></button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="saveSheetAsTemplate(\'' + sheet.id + '\')" title="Save as template"><i class="ti ti-template"></i></button>'
+          + (isArchived
+            ? '<button class="btn btn-ghost btn-sm" onclick="unarchiveChecklistSheetUI(\'' + sheet.id + '\')" title="Restore"><i class="ti ti-archive-off"></i></button>'
+            : '<button class="btn btn-ghost btn-sm" onclick="archiveChecklistSheetUI(\'' + sheet.id + '\')" title="Archive"><i class="ti ti-archive"></i></button>')
+          + '<button class="btn btn-danger btn-sm" onclick="confirmDeleteChecklistSheet(\'' + sheet.id + '\')" title="Delete sheet"><i class="ti ti-trash"></i></button>'
+          + '</div>'
+        : '')
+    +   '</div>'
+
+    /* Two-column body: item tree (left) + insight sidebar (right) */
+    +   '<div class="cl-detail-cols">'
+    +   '<div class="cl-detail-main">'
+
+    /* Item tree (column grid) */
+    +   '<div class="cl-grid">'
+    +     ((byParent['root'] && byParent['root'].length)
+          ? '<div class="cl-head-row">'
+            + '<div class="cl-h">Task / Step</div>'
+            + '<div class="cl-h">Notes</div>'
+            + '<div class="cl-h">Comments</div>'
+            + '<div class="cl-h">Owner</div>'
+            + '<div class="cl-h"></div>'
+            + '</div>'
+            + _renderClItems(byParent, 'root', 0, canEdit, [], null)
+          : '<div style="font-size:var(--text-sm);color:var(--ink-4);padding:16px 0;text-align:center">No items yet'
+            + (canEdit ? ' — click <strong>Add item</strong> or <strong>Add category</strong> below' : '') + '</div>')
+    +   '</div>'
+
+    /* Add root item / category */
+    +   (canEdit
+        ? '<div style="display:flex;gap:8px;margin-top:10px">'
+          + '<button class="btn btn-ghost btn-sm" onclick="addChecklistItemUI(\'' + sheet.id + '\', null)">'
+          + '<i class="ti ti-plus"></i> Add item</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="addChecklistItemUI(\'' + sheet.id + '\', null, \'category\')">'
+          + '<i class="ti ti-plus"></i> Add category</button>'
+          + '</div>'
+        : '')
+    +   '</div>'                          /* /cl-detail-main */
+    +   _clSidebarHtml(sheet.id)
+    +   '</div>'                          /* /cl-detail-cols */
+    + '</div>'                            /* /cl-sheet-body  */
+    + _clSheetModalHtml();
+
+  /* Set input values via JS — avoids HTML-encoding issues */
+  _clHydrateValues(activeId);
+}
+
+/* ── Grid/detail navigation & filters ───────────────────── */
+function openChecklistSheet(id) {
+  State.activeChecklistSheetId = id;
+  _clView = 'sheet';
+  renderChecklists();
+}
+function backToChecklistGrid() {
+  _clView = 'grid';
+  renderChecklists();
+}
+function setChecklistFilter(f) {
+  _clFilter = f;
+  renderChecklists();
+}
+async function archiveChecklistSheetUI(id) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    await State.updateChecklistSheet(id, { active: false });
+    if (_clView === 'sheet') _clView = 'grid';
+    renderChecklists();
+    toast('Checklist archived');
+  } catch(e) { toast('Archive failed: ' + e.message, 'error'); }
+}
+async function unarchiveChecklistSheetUI(id) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    await State.updateChecklistSheet(id, { active: true });
+    renderChecklists();
+    toast('Checklist restored');
+  } catch(e) { toast('Restore failed: ' + e.message, 'error'); }
+}
+function toggleClCategory(id) {
+  if (_clCollapsed.has(id)) _clCollapsed.delete(id);
+  else _clCollapsed.add(id);
+  renderChecklists();
+}
+
+/* ── Sheet tabs (pipeline-tab style with palette cycling) ── */
+function _renderChecklistTabs(sheets, activeId, canEdit) {
+  return sheets.map(function(s, idx) {
+    const pal      = _PIP_PALETTE[idx % _PIP_PALETTE.length];
+    const isActive = s.id === activeId;
+    const p        = _clProgress(s.id);
+    const bg       = isActive ? pal.active : pal.bg;
+    const color    = isActive ? '#fff'     : pal.text;
+    const shadow   = isActive ? '0 3px 12px ' + pal.shadow : 'none';
+    const border   = isActive ? '2px solid transparent' : '2px solid ' + pal.bg;
+    const badge    = p.total > 0
+      ? '<span style="font-size:10px;font-family:var(--mono);font-weight:700;padding:1px 7px;border-radius:20px;'
+        + 'background:' + (isActive ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.07)') + ';'
+        + 'color:' + (isActive ? '#fff' : pal.text) + '">' + p.done + '/' + p.total + '</span>'
+      : '';
+    return '<div class="pipeline-tab' + (isActive ? ' active' : '') + '"'
+      + ' onclick="switchChecklistSheet(\'' + s.id + '\')"'
+      + ' style="background:' + bg + ';color:' + color + ';border:' + border + ';box-shadow:' + shadow + '">'
+      + '<span>' + esc(s.name) + '</span>'
+      + badge
+      + '</div>';
+  }).join('');
+}
+
+function switchChecklistSheet(id) {
+  State.activeChecklistSheetId = id;
+  renderChecklists();
+}
+
+/* ── Tree build & recursive render ──────────────────────── */
+function _clTree(sheetId) {
+  const byParent = {};
+  State.checklistItems
+    .filter(i => i.sheetId === sheetId)
+    .forEach(function(i) {
+      const k = i.parentItemId || 'root';
+      (byParent[k] = byParent[k] || []).push(i);
+    });
+  Object.values(byParent).forEach(a => a.sort((x, y) => x.sortOrder - y.sortOrder));
+  return byParent;
+}
+
+function _clProgress(sheetId) {
+  const items = State.checklistItems.filter(i => i.sheetId === sheetId && i.itemType !== 'category');
+  const done  = items.filter(i => i.done).length;
+  return { done, total: items.length, pct: items.length ? Math.round(done / items.length * 100) : 0 };
+}
+
+/*
+ * Progress for one category "section". Categories act as section headers:
+ * a category owns every following root-level item up to the next category
+ * (plus any legacy true children parented directly to it), and all of their
+ * descendants.
+ */
+function _clSectionProgress(byParent, catId) {
+  let done = 0, total = 0;
+  const root = byParent['root'] || [];
+  const idx  = root.findIndex(x => x.id === catId);
+  const walk = function(it) {
+    if (it.itemType === 'category') return;
+    total++; if (it.done) done++;
+    (byParent[it.id] || []).forEach(walk);
+  };
+  if (idx >= 0) {
+    for (let j = idx + 1; j < root.length; j++) {
+      if (root[j].itemType === 'category') break;     /* next section starts */
+      walk(root[j]);
+    }
+  }
+  (byParent[catId] || []).forEach(walk);              /* legacy true children */
+  return { done, total };
+}
+
+/* Assign a cycling palette colour to each category in the active sheet */
+let _clCatColors = {};
+function _clBuildCatColors(byParent) {
+  _clCatColors = {};
+  let idx = 0;
+  (byParent['root'] || []).forEach(function(it) {
+    if (it.itemType === 'category') {
+      _clCatColors[it.id] = _PIP_PALETTE[idx % _PIP_PALETTE.length];
+      idx++;
+    }
+  });
+}
+
+/*
+ * Recursive row renderer.
+ *  guides   — array (one per ancestor level) of bools: does that ancestor have a following sibling?
+ *  catColor — palette object inherited from the enclosing category (null at the bare root level).
+ */
+function _renderClItems(byParent, parentKey, depth, canEdit, guides, catColor) {
+  const sibs = byParent[parentKey] || [];
+  /* Track the active section while iterating root-level siblings.
+     Categories are section headers: each owns the items that follow it
+     until the next category. Collapsing a category hides that whole run. */
+  let sectionCat       = catColor;
+  let sectionCollapsed = false;
+  let out = '';
+
+  sibs.forEach(function(it, i) {
+    const isLast = i === sibs.length - 1;
+    const kids   = byParent[it.id] || [];
+
+    /* ── Category header row ─────────────────────────────── */
+    if (it.itemType === 'category') {
+      const pal       = _clCatColors[it.id] || _PIP_PALETTE[0];
+      const cp        = _clSectionProgress(byParent, it.id);
+      const collapsed = _clCollapsed.has(it.id);
+      sectionCat       = pal;
+      sectionCollapsed = collapsed;
+      out += '<div class="cl-category' + (collapsed ? ' collapsed' : '') + '"'
+        + ' style="--cat:' + pal.active + ';background:' + pal.bg + ';color:' + pal.text + '"'
+        + (canEdit ? ' draggable="true" ondragstart="clItemDragStart(event,\'' + it.id + '\')"'
+          + ' ondragover="clItemDragOver(event)" ondrop="clItemDrop(event,\'' + it.id + '\')" ondragend="clItemDragEnd(event)"' : '')
+        + '>'
+        + '<button class="cl-cat-toggle" title="' + (collapsed ? 'Expand' : 'Collapse') + '" onclick="toggleClCategory(\'' + it.id + '\')">'
+        +   '<i class="ti ti-chevron-' + (collapsed ? 'right' : 'down') + '"></i></button>'
+        + (canEdit ? '<span class="cl-handle" title="Drag to reorder"><i class="ti ti-grip-vertical"></i></span>' : '')
+        + (canEdit
+          ? '<input class="cl-cat-name" id="cl-txt-' + it.id + '" placeholder="Category name…"'
+            + ' style="color:' + pal.text + '"'
+            + ' onchange="updateChecklistItemText(\'' + it.id + '\', this.value)"'
+            + ' onkeydown="if(event.key===\'Enter\')this.blur()">'
+          : '<span class="cl-cat-name" id="cl-txt-' + it.id + '"></span>')
+        + '<span class="cl-cat-prog">' + cp.done + '/' + cp.total + '</span>'
+        + (canEdit
+          ? '<span class="cl-cat-acts">'
+            + '<button class="cl-row-btn" title="Move up"   onclick="moveChecklistItemUI(\'' + it.id + '\',-1)"><i class="ti ti-chevron-up"></i></button>'
+            + '<button class="cl-row-btn" title="Move down" onclick="moveChecklistItemUI(\'' + it.id + '\',1)"><i class="ti ti-chevron-down"></i></button>'
+            + '<button class="cl-row-btn" title="Add task"  onclick="addChecklistItemUI(\'' + it.sheetId + '\',\'' + it.id + '\')"><i class="ti ti-plus"></i></button>'
+            + '<button class="cl-row-btn cl-del" title="Delete category (and its tasks)" onclick="deleteChecklistItemUI(\'' + it.id + '\')"><i class="ti ti-x"></i></button>'
+            + '</span>'
+          : '')
+        + '</div>';
+      /* legacy: items parented directly to the category */
+      if (!collapsed) out += _renderClItems(byParent, it.id, 0, canEdit, [], pal);
+      return;
+    }
+
+    /* Items belonging to a collapsed section are hidden */
+    if (sectionCollapsed) return;
+
+    /* ── Task / subtask row ──────────────────────────────── */
+    const rowColor = sectionCat;
+    const kidsDone = kids.length > 0 && kids.every(k => k.done && k.itemType !== 'category');
+    const user     = it.assigneeId ? State.getUser(it.assigneeId) : null;
+    const barCss   = rowColor ? 'border-left:3px solid ' + rowColor.active + ';' : '';
+
+    /* tree-guide segments (indentation lives here, Task column only) */
+    let guideHtml = '';
+    for (let g = 0; g < depth; g++) {
+      if (g === depth - 1) guideHtml += '<span class="cl-guide ' + (isLast ? 'elbow' : 'tee') + '"></span>';
+      else                 guideHtml += '<span class="cl-guide' + (guides[g] ? ' line' : '') + '"></span>';
+    }
+
+    const row = '<div class="cl-item' + (it.done ? ' done' : '') + (kidsDone && !it.done ? ' kids-done' : '') + '"'
+      + (canEdit ? ' draggable="true" ondragstart="clItemDragStart(event,\'' + it.id + '\')"'
+        + ' ondragover="clItemDragOver(event)" ondrop="clItemDrop(event,\'' + it.id + '\')" ondragend="clItemDragEnd(event)"' : '')
+      + '>'
+
+      /* Column 1 — task cell (guides + handle + checkbox + text) */
+      + '<div class="cl-task-cell" style="' + barCss + '">'
+      +   guideHtml
+      +   (canEdit ? '<span class="cl-handle" title="Drag to reorder"><i class="ti ti-grip-vertical"></i></span>' : '')
+      +   '<div class="subtask-check' + (it.done ? ' checked' : '') + '"'
+      +     (canEdit ? ' onclick="toggleChecklistItemUI(\'' + it.id + '\')"' : '')
+      +     ' style="' + (canEdit ? 'cursor:pointer' : 'cursor:default;opacity:0.6') + '">'
+      +     (it.done ? '<i class="ti ti-check" style="font-size:9px"></i>' : '')
+      +   '</div>'
+      +   '<div class="cl-task-main">'
+      +     (canEdit
+          ? '<input class="subtask-text-input' + (it.done ? ' done' : '') + '" id="cl-txt-' + it.id + '"'
+            + ' placeholder="Describe the step…"'
+            + ' onchange="updateChecklistItemText(\'' + it.id + '\', this.value)"'
+            + ' onkeydown="if(event.key===\'Enter\')this.blur()">'
+          : '<span class="subtask-text' + (it.done ? ' done' : '') + '" id="cl-txt-' + it.id + '"></span>')
+      +     _clItemMetaHtml(it, canEdit)
+      +   '</div>'
+      + '</div>'
+
+      /* Column 2 — notes */
+      + '<div class="cl-cell cl-notes-cell">'
+      +   (canEdit
+          ? '<textarea class="cl-celltext" rows="1" id="cl-notes-' + it.id + '" placeholder="Add note…"'
+            + ' oninput="_clAutoGrow(this)"'
+            + ' onchange="updateChecklistItemNotes(\'' + it.id + '\', this.value)"></textarea>'
+          : '<div class="cl-celltext ro" id="cl-notes-' + it.id + '"></div>')
+      + '</div>'
+
+      /* Column 3 — comments */
+      + '<div class="cl-cell cl-comments-cell">'
+      +   (canEdit
+          ? '<textarea class="cl-celltext" rows="1" id="cl-comments-' + it.id + '" placeholder="Add comment…"'
+            + ' oninput="_clAutoGrow(this)"'
+            + ' onchange="updateChecklistItemComments(\'' + it.id + '\', this.value)"></textarea>'
+          : '<div class="cl-celltext ro" id="cl-comments-' + it.id + '"></div>')
+      + '</div>'
+
+      /* Column 4 — owner */
+      + '<div class="cl-owner-cell">'
+      +   (user ? assigneeChip(user.id) : '')
+      +   (canEdit
+          ? '<select class="cl-assignee-sel" onchange="setChecklistItemAssignee(\'' + it.id + '\', this.value)" title="Assign">'
+            + '<option value=""' + (!it.assigneeId ? ' selected' : '') + '>—</option>'
+            + State.users.map(function(u) {
+                return '<option value="' + u.id + '"' + (it.assigneeId === u.id ? ' selected' : '') + '>' + esc(u.name) + '</option>';
+              }).join('')
+            + '</select>'
+          : '')
+      + '</div>'
+
+      /* Column 5 — actions */
+      + '<div class="cl-actions">'
+      +   (canEdit
+          ? '<button class="cl-row-btn" title="Move up"      onclick="moveChecklistItemUI(\'' + it.id + '\',-1)"><i class="ti ti-chevron-up"></i></button>'
+            + '<button class="cl-row-btn" title="Move down"  onclick="moveChecklistItemUI(\'' + it.id + '\',1)"><i class="ti ti-chevron-down"></i></button>'
+            + '<button class="cl-row-btn" title="Add sub-item" onclick="addChecklistItemUI(\'' + it.sheetId + '\',\'' + it.id + '\')"><i class="ti ti-plus"></i></button>'
+            + '<button class="cl-row-btn cl-del" title="Delete (children too)" onclick="deleteChecklistItemUI(\'' + it.id + '\')"><i class="ti ti-x"></i></button>'
+          : '')
+      + '</div>'
+
+      + '</div>';
+
+    out += row + _renderClItems(byParent, it.id, depth + 1, canEdit, guides.concat(!isLast), rowColor);
+  });
+  return out;
+}
+
+/* Auto-grow a single-line cell textarea to fit its content */
+function _clAutoGrow(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+}
+
+/* Set text/notes/comments values via JS after render — avoids HTML-encoding issues */
+function _clHydrateValues(sheetId) {
+  State.checklistItems
+    .filter(i => i.sheetId === sheetId)
+    .forEach(function(i) {
+      const txtEl = document.getElementById('cl-txt-' + i.id);
+      if (txtEl) {
+        if (txtEl.tagName === 'INPUT') txtEl.value = i.text || '';
+        else txtEl.textContent = i.text || '';
+      }
+      const ntEl = document.getElementById('cl-notes-' + i.id);
+      if (ntEl) {
+        if (ntEl.tagName === 'TEXTAREA') { ntEl.value = i.notes || ''; _clAutoGrow(ntEl); }
+        else ntEl.textContent = i.notes || '';
+      }
+      const cmEl = document.getElementById('cl-comments-' + i.id);
+      if (cmEl) {
+        if (cmEl.tagName === 'TEXTAREA') { cmEl.value = i.comments || ''; _clAutoGrow(cmEl); }
+        else cmEl.textContent = i.comments || '';
+      }
+    });
+}
+
+/* ── Sheet modal (new sheet) ────────────────────────────── */
+function _clSheetModalHtml() {
+  return '<div class="modal-overlay" id="cl-sheet-modal">'
+    + '<div class="modal" style="max-width:420px">'
+    + '<div class="modal-head">'
+    +   '<div class="modal-title">New checklist sheet</div>'
+    +   '<button class="btn btn-ghost btn-sm" onclick="_closeModal(\'cl-sheet-modal\')"><i class="ti ti-x"></i></button>'
+    + '</div>'
+    + '<div class="modal-body">'
+    +   '<div class="form-group">'
+    +     '<label class="form-label">Sheet name <span style="color:var(--red)">*</span></label>'
+    +     '<input id="cl-sheet-name" class="form-input" placeholder="e.g. Monthly Closing — The Den DXB">'
+    +   '</div>'
+    +   '<div class="form-group">'
+    +     '<label class="form-label">Client <span style="color:var(--ink-4)">(optional)</span></label>'
+    +     '<select id="cl-sheet-client" class="form-select">'
+    +       '<option value="">No client</option>'
+    +       State.clients.filter(c => c.active !== false)
+            .map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join('')
+    +     '</select>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    +   '<button class="btn btn-ghost" onclick="_closeModal(\'cl-sheet-modal\')">Cancel</button>'
+    +   '<button class="btn btn-primary" onclick="submitNewChecklistSheet()"><i class="ti ti-circle-check"></i> Create sheet</button>'
+    + '</div>'
+    + '</div></div>';
+}
+
+function openNewChecklistSheetModal() {
+  if (State.user?.role === 'viewer') return;
+  const nm = document.getElementById('cl-sheet-name');
+  const cs = document.getElementById('cl-sheet-client');
+  if (nm) nm.value = '';
+  if (cs) cs.value = '';
+  document.getElementById('cl-sheet-modal')?.classList.add('open');
+  setTimeout(function(){ document.getElementById('cl-sheet-name')?.focus(); }, 100);
+}
+
+async function submitNewChecklistSheet() {
+  if (State.user?.role === 'viewer') return;
+  const name     = (document.getElementById('cl-sheet-name')?.value || '').trim();
+  const clientId = document.getElementById('cl-sheet-client')?.value || '';
+  if (!name) { toast('Please enter a sheet name', 'error'); return; }
+  try {
+    const sheet = await State.addChecklistSheet({ name, clientId });
+    /* Apply a checklist template if one is pending (from the library) */
+    if (_clPendingTemplateId) {
+      const tplId = _clPendingTemplateId;
+      _clPendingTemplateId = null;
+      await _clApplyTemplate(sheet.id, tplId);
+    }
+    State.activeChecklistSheetId = sheet.id;
+    _clView = 'sheet';
+    _closeModal('cl-sheet-modal');
+    renderChecklists();
+    toast('Sheet "' + name + '" created!');
+  } catch(e) {
+    _clPendingTemplateId = null;
+    toast('Failed to create sheet: ' + e.message, 'error');
+  }
+}
+
+/* ── Sheet actions ──────────────────────────────────────── */
+async function renameChecklistSheetUI(sheetId) {
+  if (State.user?.role === 'viewer') return;
+  const sheet = State.checklistSheets.find(s => s.id === sheetId);
+  if (!sheet) return;
+  const name = prompt('Rename sheet:', sheet.name);
+  if (!name || !name.trim() || name.trim() === sheet.name) return;
+  try {
+    await State.updateChecklistSheet(sheetId, { name: name.trim() });
+    renderChecklists();
+    toast('Sheet renamed');
+  } catch(e) { toast('Rename failed: ' + e.message, 'error'); }
+}
+
+async function duplicateChecklistSheetUI(sheetId) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    const newId = await State.duplicateChecklistSheet(sheetId);
+    if (newId) {
+      State.activeChecklistSheetId = newId;
+      renderChecklists();
+      toast('Sheet duplicated — all items unchecked. Rename it for the new period.');
+    }
+  } catch(e) { toast('Duplicate failed: ' + e.message, 'error'); }
+}
+
+async function confirmDeleteChecklistSheet(sheetId) {
+  if (State.user?.role === 'viewer') return;
+  const sheet = State.checklistSheets.find(s => s.id === sheetId);
+  if (!sheet) return;
+  const count = State.checklistItems.filter(i => i.sheetId === sheetId).length;
+  if (!confirm('Delete sheet "' + sheet.name + '" and its ' + count + ' item(s)? This cannot be undone.')) return;
+  try {
+    await State.deleteChecklistSheet(sheetId);
+    State.activeChecklistSheetId = null;
+    renderChecklists();
+    toast('Sheet deleted', 'error');
+  } catch(e) { toast('Delete failed: ' + e.message, 'error'); }
+}
+
+/* ── Item actions ───────────────────────────────────────── */
+async function toggleChecklistItemUI(itemId) {
+  if (State.user?.role === 'viewer') return;
+  const item = State.checklistItems.find(i => i.id === itemId);
+  if (!item) return;
+  try {
+    const nowDone = !item.done;
+    await State.updateChecklistItem(itemId, { done: nowDone });
+    if (item.itemType !== 'category') {
+      ClLocal.logActivity(item.sheetId, {
+        type: 'done', text: item.text || 'item', to: nowDone,
+        user: (State.user && State.user.name) || ''
+      });
+    }
+    renderChecklists();
+  } catch(e) { toast('Update failed: ' + e.message, 'error'); }
+}
+
+async function updateChecklistItemText(itemId, value) {
+  if (State.user?.role === 'viewer') return;
+  const text = (value || '').trim();
+  if (!text) return;
+  try { await State.updateChecklistItem(itemId, { text }); }
+  catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+async function updateChecklistItemNotes(itemId, value) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    await State.updateChecklistItem(itemId, { notes: (value || '').trim() });
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+async function updateChecklistItemComments(itemId, value) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    await State.updateChecklistItem(itemId, { comments: (value || '').trim() });
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+async function setChecklistItemAssignee(itemId, userId) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    await State.updateChecklistItem(itemId, { assigneeId: userId || '' });
+    renderChecklists();
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+/* Reorder via up/down arrows */
+async function moveChecklistItemUI(itemId, dir) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    const moved = await State.moveChecklistItem(itemId, dir);
+    if (moved) renderChecklists();
+  } catch(e) { toast('Move failed: ' + e.message, 'error'); }
+}
+
+/* Reorder via drag & drop */
+let _clDragId = null;
+function clItemDragStart(e, id) {
+  _clDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.stopPropagation();
+  setTimeout(() => e.currentTarget?.classList.add('dragging'), 0);
+}
+function clItemDragEnd(e) {
+  e.currentTarget?.classList.remove('dragging');
+  document.querySelectorAll('.cl-item.drag-over, .cl-category.drag-over')
+    .forEach(el => el.classList.remove('drag-over'));
+}
+function clItemDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+async function clItemDrop(e, targetId) {
+  e.preventDefault();
+  e.stopPropagation();
+  e.currentTarget.classList.remove('drag-over');
+  if (!_clDragId || _clDragId === targetId) { _clDragId = null; return; }
+  const id = _clDragId;
+  _clDragId = null;
+  try {
+    const ok = await State.reorderChecklistItemDrop(id, targetId);
+    if (ok) renderChecklists();
+  } catch(err) { toast('Reorder failed: ' + err.message, 'error'); }
+}
+
+async function addChecklistItemUI(sheetId, parentItemId, itemType) {
+  if (State.user?.role === 'viewer') return;
+  try {
+    const item = await State.addChecklistItem(sheetId, parentItemId, '', itemType);
+    renderChecklists();
+    setTimeout(function() {
+      document.getElementById('cl-txt-' + item.id)?.focus();
+    }, 60);
+  } catch(e) { toast('Add failed: ' + e.message, 'error'); }
+}
+
+async function deleteChecklistItemUI(itemId) {
+  if (State.user?.role === 'viewer') return;
+  const kids = State.checklistItems.filter(i => i.parentItemId === itemId).length;
+  const msg  = kids > 0
+    ? 'Delete this item and its ' + kids + ' sub-item(s)?'
+    : 'Delete this item?';
+  if (!confirm(msg)) return;
+  try {
+    await State.deleteChecklistItem(itemId);
+    renderChecklists();
+  } catch(e) { toast('Delete failed: ' + e.message, 'error'); }
+}
