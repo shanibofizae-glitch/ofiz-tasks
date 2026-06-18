@@ -88,14 +88,13 @@ async function submitLogin() {
   const errMsg     = document.getElementById('login-error-msg');
   const btn        = document.getElementById('login-btn');
 
-  const username = (usernameEl?.value || '').trim().toLowerCase();
+  const email    = (usernameEl?.value || '').trim().toLowerCase();
   const password = passwordEl?.value || '';
 
-  /* Clear previous error */
   errorEl.style.display = 'none';
 
-  if (!username) {
-    errMsg.textContent = 'Please enter your username.';
+  if (!email) {
+    errMsg.textContent = 'Please enter your email.';
     errorEl.style.display = 'block';
     usernameEl?.focus();
     return;
@@ -107,23 +106,52 @@ async function submitLogin() {
     return;
   }
 
-  /* Match username against users (by name, case-insensitive) */
-  const user = State.users.find(u =>
-    u.name.toLowerCase() === username ||
-    (u.email && u.email.toLowerCase() === username)
-  );
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Signing in…'; }
 
-  if (!user || user.password !== password) {
-    errMsg.textContent = 'Incorrect username or password.';
-    errorEl.style.display = 'block';
-    passwordEl.value = '';
-    passwordEl.focus();
-    return;
+  if (State.useSheets) {
+    /* Supabase Auth */
+    try {
+      await Sheets.signIn(email, password);
+    } catch(e) {
+      errMsg.textContent = 'Incorrect email or password.';
+      errorEl.style.display = 'block';
+      passwordEl.value = '';
+      passwordEl.focus();
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Sign in'; }
+      return;
+    }
+
+    /* Load user profiles now that we're authenticated */
+    const freshUsers = await Sheets.loadUsers();
+    if (freshUsers?.length) State.users = freshUsers;
+
+    const user = State.users.find(u => u.email?.toLowerCase() === email);
+    if (!user) {
+      errMsg.textContent = 'No profile found for this account. Contact your admin.';
+      errorEl.style.display = 'block';
+      await Sheets.signOut();
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Sign in'; }
+      return;
+    }
+
+    await loginAs(user.id);
+  } else {
+    /* Demo / offline fallback */
+    const user = State.users.find(u =>
+      u.name.toLowerCase() === email ||
+      (u.email && u.email.toLowerCase() === email)
+    );
+    if (!user || user.password !== password) {
+      errMsg.textContent = 'Incorrect email or password.';
+      errorEl.style.display = 'block';
+      passwordEl.value = '';
+      passwordEl.focus();
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Sign in'; }
+      return;
+    }
+    await loginAs(user.id);
   }
 
-  /* Correct — sign in */
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Signing in…'; }
-  await loginAs(user.id);
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Sign in'; }
 }
 
@@ -224,7 +252,8 @@ function logout() {
   if (si) si.style.display = 'none';
   document.getElementById('live-clock').style.display = 'none';
   closeChat();
-  State.user     = null;
+  if (State.useSheets) Sheets.signOut().catch(() => {});
+  State.user         = null;
   State.notepad      = null;
   State._npLoadedFor = null;
   selectedUserId = null;
@@ -331,23 +360,23 @@ if ('serviceWorker' in navigator) {
 
 /* ── Init ───────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
-  /* Initialise Supabase client */
   Sheets.init();
+  _applySettings();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display   = 'none';
 
-  /* Load users from Supabase so login credentials are up to date.
-     We load ONLY users here — rest of data loads after successful login. */
-  try {
-    if (State.useSheets) {
-      const freshUsers = await Sheets.loadUsers();
-      if (freshUsers && freshUsers.length) State.users = freshUsers;
-    }
-  } catch(e) { /* fall back to demo users */ }
+  /* Restore existing Supabase session (page refresh / browser reopen) */
+  if (State.useSheets) {
+    try {
+      const session = await Sheets.getSession();
+      if (session?.user?.email) {
+        const freshUsers = await Sheets.loadUsers();
+        if (freshUsers?.length) State.users = freshUsers;
+        const user = State.users.find(u => u.email?.toLowerCase() === session.user.email.toLowerCase());
+        if (user) { await loginAs(user.id); return; }
+      }
+    } catch(e) { /* fall through to login screen */ }
+  }
 
-  /* Apply saved theme */
-  _applySettings();
-
-  /* Focus username field */
   setTimeout(() => document.getElementById('login-username')?.focus(), 100);
 });

@@ -295,6 +295,20 @@ const Sheets = {
     if (error) console.error('[DB] saveNotepad:', error.message);
   },
 
+  /* ── Auth helpers ───────────────────────────────── */
+  async signIn(email, password) {
+    const { data, error } = await this._sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+  },
+  async signOut() {
+    await this._sb.auth.signOut();
+  },
+  async getSession() {
+    const { data: { session } } = await this._sb.auth.getSession();
+    return session;
+  },
+
   /* ── Real-time subscriptions ────────────────────── */
   subscribeRealtime() {
     if (!this._sb) return;
